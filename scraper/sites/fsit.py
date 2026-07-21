@@ -42,7 +42,7 @@ def scrape(ticker, url):
             if len(tds) < 5:
                 continue
             code = tds[0].get_text(strip=True)
-            if not code or code in ("股票代碼",):
+            if not re.fullmatch(r"[0-9A-Za-z]+", code):
                 continue
             holdings.append(
                 {
