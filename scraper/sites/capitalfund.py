@@ -1,52 +1,62 @@
 """Parser for www.capitalfund.com.tw (群益投信 active ETFs).
 
-Angular SSR page; the holdings table is rendered as nested <div>s (not a
-real <table>). Each row lives under div.pct-stock-table-tbody as
-div.tr.show-for-medium with four child divs: code, name, weight%, shares.
+The Angular page only server-renders the top 10 holdings; the rest are
+loaded into the component's memory on page load and merely hidden
+behind a client-side "展開全部" (expand all) toggle -- no additional
+network call happens when it's clicked. That full list comes from a
+JSON API discovered by reading the site's lazy-loaded chunk for this
+page (chunk 44 of main.5239e75b20e72285.js at the time of writing):
 
-The "as of" date is labelled "最新日期" and its value sits in
-<input id="condition-date" value="yyyy/mm/dd">.
+    POST https://www.capitalfund.com.tw/CFWeb/api/etf/buyback
+    body: {"fundId": "<numeric id from the URL>", "date": null}
+
+The real API host ("/CFWeb") isn't the page's own origin -- it's only
+known at runtime via a config file the Angular app fetches itself:
+GET /assets/conf/app.json -> {"apiUrl": "https://www.capitalfund.com.tw/CFWeb", ...}
 """
 
-from bs4 import BeautifulSoup
+from urllib.parse import urlsplit
 
-from scraper.utils import clean_number, fetch_html, parse_date
+from scraper.utils import clean_number, get_session, parse_date
+
+API_URL = "https://www.capitalfund.com.tw/CFWeb/api/etf/buyback"
+
+
+def _fund_id_from_url(url):
+    parts = [p for p in urlsplit(url).path.split("/") if p]
+    # .../etf/product/detail/<fundId>/portfolio
+    return parts[parts.index("detail") + 1]
 
 
 def scrape(ticker, url):
-    html = fetch_html(url)
-    soup = BeautifulSoup(html, "lxml")
+    fund_id = _fund_id_from_url(url)
+    session = get_session()
 
-    data_date = None
-    date_input = soup.find("input", id="condition-date")
-    if date_input is not None:
-        data_date = parse_date(date_input.get("value"))
+    resp = session.post(
+        API_URL,
+        json={"fundId": fund_id, "date": None},
+        headers={"Referer": url, "Content-Type": "application/json"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    payload = resp.json().get("data") or {}
 
-    net_asset = None
-    for div in soup.find_all("div", class_="th"):
-        if "基金淨資產價值" in div.get_text():
-            td = div.find_next_sibling("div", class_="td")
-            if td is not None:
-                net_asset = clean_number(td.get_text())
-                break
+    pcf = payload.get("pcf") or {}
+    net_asset = clean_number(pcf.get("nav"))
+    data_date = parse_date(pcf.get("date1"))
 
     holdings = []
-    tbody = soup.find("div", class_="pct-stock-table-tbody")
-    if tbody is not None:
-        for row in tbody.select("div.tr.show-for-medium"):
-            cells = row.find_all("div", recursive=False)
-            if len(cells) < 4:
-                continue
-            code = cells[0].get_text(strip=True)
-            if not code:
-                continue
-            holdings.append(
-                {
-                    "stock_code": code,
-                    "stock_name": cells[1].get_text(strip=True),
-                    "shares": clean_number(cells[3].get_text()),
-                    "weight_pct": clean_number(cells[2].get_text()),
-                }
-            )
+    for row in payload.get("stocks") or []:
+        code = str(row.get("stocNo") or "").strip()
+        if not code:
+            continue
+        holdings.append(
+            {
+                "stock_code": code,
+                "stock_name": (row.get("stocName") or "").strip(),
+                "shares": clean_number(row.get("share")),
+                "weight_pct": clean_number(row.get("weightRound")),
+            }
+        )
 
     return {"net_asset": net_asset, "data_date": data_date, "holdings": holdings}
