@@ -20,8 +20,13 @@ CREATE TABLE IF NOT EXISTS etf_holding (
     stock_code TEXT NOT NULL,
     stock_name TEXT,
     shares NUMERIC,
-    weight_pct NUMERIC
+    weight_pct NUMERIC,
+    price NUMERIC,
+    change_pct NUMERIC
 );
+
+ALTER TABLE etf_holding ADD COLUMN IF NOT EXISTS price NUMERIC;
+ALTER TABLE etf_holding ADD COLUMN IF NOT EXISTS change_pct NUMERIC;
 
 CREATE INDEX IF NOT EXISTS idx_etf_holding_snapshot_id ON etf_holding (snapshot_id);
 """
@@ -60,11 +65,20 @@ def save_etf_snapshot(conn, ticker, etf_name, data_date, net_asset, holdings):
             execute_values(
                 cur,
                 """
-                INSERT INTO etf_holding (snapshot_id, stock_code, stock_name, shares, weight_pct)
+                INSERT INTO etf_holding
+                    (snapshot_id, stock_code, stock_name, shares, weight_pct, price, change_pct)
                 VALUES %s
                 """,
                 [
-                    (snapshot_id, h["stock_code"], h["stock_name"], h["shares"], h["weight_pct"])
+                    (
+                        snapshot_id,
+                        h["stock_code"],
+                        h["stock_name"],
+                        h["shares"],
+                        h["weight_pct"],
+                        h.get("price"),
+                        h.get("change_pct"),
+                    )
                     for h in holdings
                 ],
             )

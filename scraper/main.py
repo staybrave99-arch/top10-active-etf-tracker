@@ -4,6 +4,7 @@ import time
 from urllib.parse import urlparse
 
 from scraper.db import get_conn, init_schema, save_etf_snapshot
+from scraper.prices import fetch_price_lookup
 from scraper.sites import capitalfund, cathay, ezmoney, fhtrust, fsit, nomura
 from scraper.utils import today_taipei
 
@@ -22,12 +23,27 @@ def load_etf_list(csv_path):
         return list(csv.DictReader(f))
 
 
+def attach_prices(holdings, price_lookup):
+    for h in holdings:
+        price, change_pct = price_lookup.get(h["stock_code"], (None, None))
+        h["price"] = price
+        h["change_pct"] = change_pct
+
+
 def main():
     csv_path = sys.argv[1] if len(sys.argv) > 1 else "Top10ActiveETF.csv"
     rows = load_etf_list(csv_path)
 
     conn = get_conn()
     init_schema(conn)
+
+    print("[PRICES] fetching TWSE/TPEx daily quotes ...")
+    try:
+        price_lookup = fetch_price_lookup()
+        print(f"[PRICES] loaded {len(price_lookup)} stock quotes")
+    except Exception as exc:
+        print(f"[PRICES] failed to fetch price data, continuing without it: {exc}")
+        price_lookup = {}
 
     failures = []
     for row in rows:
@@ -47,6 +63,7 @@ def main():
             result = scrape_fn(ticker=ticker, url=url)
             if not result["holdings"]:
                 raise ValueError("no holdings parsed")
+            attach_prices(result["holdings"], price_lookup)
             data_date = result["data_date"] or today_taipei()
             snapshot_id = save_etf_snapshot(
                 conn, ticker, name, data_date, result["net_asset"], result["holdings"]
