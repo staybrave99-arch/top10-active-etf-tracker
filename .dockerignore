@@ -1,0 +1,9 @@
+.venv
+__pycache__
+*.pyc
+.git
+test_parsers.py
+research_*
+*.html
+*.js
+*.bin

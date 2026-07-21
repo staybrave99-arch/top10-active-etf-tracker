@@ -1,0 +1,12 @@
+app = "top10-active-etf-tracker"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TZ = "Asia/Taipei"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

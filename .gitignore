@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+research_*
+*.html
+cathay_main.js
+nomura_main.js
+cathay_weight.xlsx
+prompt.txt
