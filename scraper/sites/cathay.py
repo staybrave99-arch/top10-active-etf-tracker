@@ -2,16 +2,19 @@
 
 This is an Angular SPA; the rendered HTML carries no fund data at all.
 The real data comes from a JSON API on a separate host, discovered by
-reading the site's main.js bundle:
+reading the site's lazy-loaded route chunk (not main.js -- the ETF
+detail page's component code, and therefore its API calls, live in a
+separate webpack chunk fetched at runtime):
 
     https://cwapi.cathaysite.com.tw/api/ETF/GetETFAssets            -> NAV + as-of date
-    https://cwapi.cathaysite.com.tw/api/ETF/GetIndexStockWeights    -> stock code/name/weight
+    https://cwapi.cathaysite.com.tw/api/ETF/GetETFDetailStockList   -> stock code/name/shares/weight
     https://cwapi.cathaysite.com.tw/api/ETF/GetETFList              -> maps stockCode -> internal fundCode
 
 The API's own "fundCode" is a short internal slug (e.g. "EA" for
 00400A), not the public ticker, so it must be resolved via GetETFList
-first. GetIndexStockWeights does not carry share counts, so "shares" is
-always None for this source.
+first. GetETFDetailStockList additionally requires a "SearchDate"
+(the NAV as-of date from GetETFAssets, formatted yyyy-MM-dd) -- without
+it the endpoint returns no data at all.
 """
 
 from scraper.utils import clean_number, get_session, parse_date
@@ -58,26 +61,28 @@ def scrape(ticker, url):
 
     assets_resp = session.get(
         API_BASE + "api/ETF/GetETFAssets",
-        params={"fundCode": fund_code, "status": 1},
+        params={"FundCode": fund_code},
         headers=headers,
         timeout=30,
     )
     assets_resp.raise_for_status()
     assets = assets_resp.json().get("result") or {}
     net_asset = clean_number(assets.get("fundNav"))
-    data_date = parse_date(assets.get("preDate"))
+    pre_date = assets.get("preDate")
+    data_date = parse_date(pre_date)
 
-    weights_resp = session.get(
-        API_BASE + "api/ETF/GetIndexStockWeights",
-        params={"fundCode": fund_code, "status": 1},
+    search_date = pre_date.replace("/", "-") if pre_date else None
+    stock_resp = session.get(
+        API_BASE + "api/ETF/GetETFDetailStockList",
+        params={"FundCode": fund_code, "SearchDate": search_date},
         headers=headers,
         timeout=30,
     )
-    weights_resp.raise_for_status()
-    weights = weights_resp.json().get("result") or {}
+    stock_resp.raise_for_status()
+    stock_list = stock_resp.json().get("result") or []
 
     holdings = []
-    for item in weights.get("stockWeights") or []:
+    for item in stock_list:
         code = (item.get("stockCode") or "").strip()
         if not code:
             continue
@@ -85,12 +90,9 @@ def scrape(ticker, url):
             {
                 "stock_code": code,
                 "stock_name": (item.get("stockName") or "").strip(),
-                "shares": None,
+                "shares": clean_number(item.get("volumn")),
                 "weight_pct": clean_number(item.get("weights")),
             }
         )
-
-    if data_date is None:
-        data_date = parse_date(weights.get("date"))
 
     return {"net_asset": net_asset, "data_date": data_date, "holdings": holdings}

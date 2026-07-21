@@ -4,18 +4,23 @@ Angular SSR page; the holdings table is rendered as nested <div>s (not a
 real <table>). Each row lives under div.pct-stock-table-tbody as
 div.tr.show-for-medium with four child divs: code, name, weight%, shares.
 
-The page does not expose an explicit "資料日期" label, so callers should
-fall back to the scrape date for this source.
+The "as of" date is labelled "最新日期" and its value sits in
+<input id="condition-date" value="yyyy/mm/dd">.
 """
 
 from bs4 import BeautifulSoup
 
-from scraper.utils import clean_number, fetch_html
+from scraper.utils import clean_number, fetch_html, parse_date
 
 
 def scrape(ticker, url):
     html = fetch_html(url)
     soup = BeautifulSoup(html, "lxml")
+
+    data_date = None
+    date_input = soup.find("input", id="condition-date")
+    if date_input is not None:
+        data_date = parse_date(date_input.get("value"))
 
     net_asset = None
     for div in soup.find_all("div", class_="th"):
@@ -44,4 +49,4 @@ def scrape(ticker, url):
                 }
             )
 
-    return {"net_asset": net_asset, "data_date": None, "holdings": holdings}
+    return {"net_asset": net_asset, "data_date": data_date, "holdings": holdings}

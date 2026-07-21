@@ -26,7 +26,11 @@ def scrape(ticker, url):
                 break
 
     data_date = None
-    for m in re.finditer(r"資料日期[：:]\s*([0-9]{4}/[0-9]{1,2}/[0-9]{1,2})", html):
+    for tag in soup.find_all(string=re.compile("資料日期")):
+        container = tag.find_parent(["p", "div"]) or tag
+        m = re.search(r"([0-9]{4}/[0-9]{1,2}/[0-9]{1,2})", container.get_text())
+        if not m:
+            continue
         d = parse_date(m.group(1))
         if d and (data_date is None or d > data_date):
             data_date = d
