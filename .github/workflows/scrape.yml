@@ -1,0 +1,41 @@
+name: Daily ETF Scrape
+
+on:
+  schedule:
+    # 22:00 Asia/Taipei (UTC+8) = 14:00 UTC, Monday-Friday only
+    - cron: "0 14 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Run scraper on fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          MACHINE_ID=$(flyctl machine list -a top10-active-etf-tracker --json | jq -r '.[0].id')
+          echo "Starting machine $MACHINE_ID"
+          flyctl machine start "$MACHINE_ID" -a top10-active-etf-tracker
+
+          echo "Waiting for scrape to finish..."
+          STATE=""
+          for i in $(seq 1 30); do
+            sleep 10
+            STATE=$(flyctl machine list -a top10-active-etf-tracker --json | jq -r --arg id "$MACHINE_ID" '.[] | select(.id==$id) | .state')
+            echo "  state: $STATE"
+            if [ "$STATE" = "stopped" ]; then
+              break
+            fi
+          done
+
+          if [ "$STATE" != "stopped" ]; then
+            echo "::error::Scrape did not finish within the wait window (last state: $STATE)"
+            exit 1
+          fi
+          echo "Scrape finished."

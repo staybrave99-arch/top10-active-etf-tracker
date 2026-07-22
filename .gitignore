@@ -3,8 +3,11 @@ __pycache__/
 *.pyc
 .env
 research_*
-*.html
-cathay_main.js
-nomura_main.js
-cathay_weight.xlsx
 prompt.txt
+ntfy_test.json
+
+# analysis/: keep the source modules, ignore generated/derived outputs
+analysis/chart_data.json
+analysis/quadrant_chart.html
+analysis/synthetic_*.csv
+analysis/synthetic_*.json
