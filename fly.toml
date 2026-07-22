@@ -7,6 +7,13 @@ primary_region = "nrt"
 [env]
   TZ = "Asia/Taipei"
 
+# This is a batch job (main.py runs once and exits), not a long-lived
+# service -- a non-zero exit means something needs a human, not an
+# automatic retry storm against the target sites. GitHub Actions'
+# scrape.yml is the thing that decides when to run it again.
+[restart]
+  policy = "no"
+
 [[vm]]
   size = "shared-cpu-1x"
   memory = "256mb"
