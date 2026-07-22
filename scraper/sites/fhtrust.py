@@ -10,13 +10,18 @@ from a separate JSON API, found via the browser's Network tab:
     https://www.fhtrust.com.tw/api/assets?fundID=<ETFxx>&qDate=<yyyy/mm/dd>
 
 `fundID` is the short code embedded in the page URL itself (e.g.
-"ETF23" for 00991A) -- no separate lookup needed. `qDate` must be the
-PCF's actual publish date (there's a T+1-ish lag: querying "today"
-returns nothing); the "資料日期" text on the static page reliably names
-that publish date, so it's used to build the query.
+"ETF23" for 00991A) -- no separate lookup needed. `qDate` should be the
+PCF's actual publish date, which the "資料日期" text on the static page
+usually names -- but that label can run ahead of the API (e.g. it
+flips to "today" once the market closes, while today's PCF isn't
+actually published until sometime after that), in which case the API
+responds with one result item whose fields are all null rather than
+an error. So querying walks backwards a few calendar days from the
+labelled date until it finds one that actually has data.
 """
 
 import re
+from datetime import timedelta
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
@@ -24,6 +29,7 @@ from bs4 import BeautifulSoup
 from scraper.utils import clean_number, fetch_html, get_session, parse_date
 
 API_URL = "https://www.fhtrust.com.tw/api/assets"
+MAX_DATE_LOOKBACK_DAYS = 6
 
 
 def _fund_code_from_url(url):
@@ -44,29 +50,48 @@ def _find_data_date(soup):
     return data_date
 
 
+def _fetch_assets(session, page_url, fund_code, query_date):
+    resp = session.get(
+        API_URL,
+        params={"fundID": fund_code, "qDate": query_date.strftime("%Y/%m/%d")},
+        headers={"Referer": page_url, "Accept": "application/json"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    result = resp.json().get("result") or []
+    if not result:
+        return None
+    item = result[0]
+    if item.get("pcf_FundNav") is None:
+        return None
+    return item
+
+
 def scrape(ticker, url):
     page_url = url.split("#")[0]
     fund_code = _fund_code_from_url(page_url)
 
     html = fetch_html(page_url)
     soup = BeautifulSoup(html, "lxml")
-    data_date = _find_data_date(soup)
-    if data_date is None:
+    labelled_date = _find_data_date(soup)
+    if labelled_date is None:
         raise ValueError("could not find 資料日期 on fhtrust page")
 
     session = get_session()
-    resp = session.get(
-        API_URL,
-        params={"fundID": fund_code, "qDate": data_date.strftime("%Y/%m/%d")},
-        headers={"Referer": page_url, "Accept": "application/json"},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    result = payload.get("result") or []
-    if not result:
-        raise ValueError(f"fhtrust /api/assets returned no data for {fund_code} on {data_date}")
-    item = result[0]
+    item = None
+    data_date = None
+    for offset in range(MAX_DATE_LOOKBACK_DAYS + 1):
+        candidate = labelled_date - timedelta(days=offset)
+        item = _fetch_assets(session, page_url, fund_code, candidate)
+        if item is not None:
+            data_date = candidate
+            break
+
+    if item is None:
+        raise ValueError(
+            f"fhtrust /api/assets returned no data for {fund_code} within "
+            f"{MAX_DATE_LOOKBACK_DAYS} days of {labelled_date}"
+        )
 
     net_asset = clean_number(item.get("pcf_FundNav"))
 

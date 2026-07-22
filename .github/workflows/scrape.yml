@@ -38,4 +38,18 @@ jobs:
             echo "::error::Scrape did not finish within the wait window (last state: $STATE)"
             exit 1
           fi
-          echo "Scrape finished."
+          echo "Scrape finished, checking exit code..."
+
+          STATUS_TEXT=$(flyctl machine status "$MACHINE_ID" -a top10-active-etf-tracker)
+          echo "$STATUS_TEXT"
+          EXIT_LINE=$(echo "$STATUS_TEXT" | grep -m1 'exit_code=' || true)
+
+          if [ -z "$EXIT_LINE" ]; then
+            echo "::error::Could not find an exit_code in machine status output"
+            exit 1
+          fi
+          if ! echo "$EXIT_LINE" | grep -q 'exit_code=0,'; then
+            echo "::error::Scraper exited non-zero: $EXIT_LINE (check 'flyctl logs -a top10-active-etf-tracker' for which ETF failed)"
+            exit 1
+          fi
+          echo "Scraper exited 0."
