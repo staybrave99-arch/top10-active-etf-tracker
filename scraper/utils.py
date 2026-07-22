@@ -3,6 +3,8 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -13,6 +15,20 @@ DEFAULT_HEADERS = {
 
 _session = requests.Session()
 _session.headers.update(DEFAULT_HEADERS)
+
+# Fund-company sites occasionally drop the connection or time out under
+# transient load (seen intermittently across every site, not one in
+# particular). Retry idempotent GET/POST reads a few times with backoff
+# before giving up, so a single blip doesn't fail that ETF for the day.
+_retry = Retry(
+    total=3,
+    backoff_factor=1.5,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET", "POST"],
+)
+_adapter = HTTPAdapter(max_retries=_retry)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 
 def get_session():
