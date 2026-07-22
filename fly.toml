@@ -11,8 +11,8 @@ primary_region = "nrt"
 # service -- a non-zero exit means something needs a human, not an
 # automatic retry storm against the target sites. GitHub Actions'
 # scrape.yml is the thing that decides when to run it again.
-[restart]
-  policy = "no"
+[[restart]]
+  policy = "never"
 
 [[vm]]
   size = "shared-cpu-1x"
