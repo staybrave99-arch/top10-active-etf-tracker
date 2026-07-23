@@ -6,16 +6,19 @@ the parameters confirmed for this project:
     q_eps           = 0                (股數變化門檻)
     w_eps           = 0.01             (權重變化門檻, pp)
     lambda_         = 0.25             (連續天數持續性加成強度)
-    streak_mode     = "WEIGHT_ONLY"    (連續判定只看權重方向, 不強制股數同向)
+    streak_mode     = "STRICT"         (連續判定須股數與權重同向增加/減少)
     agg_mode        = "AUM"            (跨ETF合併: 依基金規模加權)
     score_form      = "MULT"           (cum_dw * (1+lambda*(streak-1)))
     ma_window       = 20               (BIAS 均線天數)
     trend_mode      = "TAG"            (象限只標籤, 不改排序)
 
-streak_mode=WEIGHT_ONLY note: this drops the doc's harder "Δq>0 AND Δw>0"
-buy condition down to "Δw>0" alone, so a pure price-driven weight increase
-(no share purchase) can register as a buy day. That's the tradeoff the
-simpler mode accepts; it was chosen over STRICT for this project.
+streak_mode=STRICT requires both Δshares > q_eps AND Δweight > w_eps to
+count a day as a buy (and the mirror image for a sell). This is
+deliberate: a stock's weight can rise purely because its price rallied,
+with the ETF not having bought a single additional share -- STRICT
+excludes that case so NetScore reflects actual accumulation/distribution
+by the fund, not price noise. A looser "WEIGHT_ONLY" mode (flag on
+Δweight alone) is still available below but is no longer the default.
 """
 
 import pandas as pd
@@ -26,7 +29,7 @@ LAMBDA = 0.25
 MA_WINDOW = 20
 
 
-def compute_flags_and_streaks(holdings: pd.DataFrame, streak_mode: str = "WEIGHT_ONLY") -> pd.DataFrame:
+def compute_flags_and_streaks(holdings: pd.DataFrame, streak_mode: str = "STRICT") -> pd.DataFrame:
     """Per (etf_code, stock_code) time series: add day-over-day deltas,
     buy/sell flags, streak lengths, cumulative streak weight-change, and
     the MULT-form accumulation score (a_up / a_dn).
@@ -34,11 +37,12 @@ def compute_flags_and_streaks(holdings: pd.DataFrame, streak_mode: str = "WEIGHT
     Required input columns: etf_code, stock_code, trade_date, shares, weight
 
     streak_mode:
-      "WEIGHT_ONLY" (this project's default) - a day counts as a buy purely
-      on Δweight > w_eps, regardless of share direction.
-      "STRICT" (the design doc's original default) - requires both
-      Δshares > q_eps AND Δweight > w_eps, so a weight increase driven
-      purely by price movement (no actual share purchase) doesn't count.
+      "STRICT" (default) - requires both Δshares > q_eps AND Δweight >
+      w_eps, so a weight increase driven purely by price movement (no
+      actual share purchase) doesn't count as a buy day.
+      "WEIGHT_ONLY" - a day counts as a buy purely on Δweight > w_eps,
+      regardless of share direction. Kept for comparison/experimentation,
+      not used by default.
     """
 
     def _per_group(g):
@@ -154,7 +158,7 @@ def build_report(
     holdings: pd.DataFrame,
     etf_aum: pd.DataFrame,
     prices: pd.DataFrame,
-    streak_mode: str = "WEIGHT_ONLY",
+    streak_mode: str = "STRICT",
 ) -> pd.DataFrame:
     """End-to-end: holdings + AUM + prices -> one row per (trade_date, stock_code)
     with net_score, bias, quadrant tag, and breadth stats.
