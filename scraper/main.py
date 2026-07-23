@@ -17,6 +17,14 @@ DISPATCH = {
     "www.nomurafunds.com.tw": nomura.scrape,
 }
 
+# www.fhtrust.com.tw drops every connection from fly.io's IP range with no
+# HTTP response at all (confirmed directly from the fly.io machine, with
+# the exact same request succeeding from other networks) -- looks like a
+# WAF rule blocking cloud/datacenter IPs rather than anything fixable on
+# our end. Skipping it here instead of letting it fail the whole run every
+# day; revisit if a workaround (different egress path, etc.) shows up.
+SKIP_TICKERS = {"00991A"}
+
 
 def load_etf_list(csv_path):
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
@@ -51,6 +59,10 @@ def main():
         name = row["ETF名稱"].strip()
         url = row["URL"].strip()
         domain = urlparse(url).netloc
+
+        if ticker in SKIP_TICKERS:
+            print(f"[SKIP] {ticker} {name}: known-blocked, see SKIP_TICKERS")
+            continue
 
         scrape_fn = DISPATCH.get(domain)
         if scrape_fn is None:
