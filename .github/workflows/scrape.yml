@@ -25,10 +25,14 @@ jobs:
 
           echo "Waiting for scrape to finish..."
           STATE=""
-          for i in $(seq 1 30); do
+          # fly.io machines that have sat stopped for hours have shown a
+          # slow cold start (DNS/network init) of several minutes before
+          # the app even starts running, on top of the scrape itself --
+          # so this needs real headroom, not just the scrape's own runtime.
+          for i in $(seq 1 60); do
             sleep 10
             STATE=$(flyctl machine list -a top10-active-etf-tracker --json | jq -r --arg id "$MACHINE_ID" '.[] | select(.id==$id) | .state')
-            echo "  state: $STATE"
+            echo "  [$((i*10))s] state: $STATE"
             if [ "$STATE" = "stopped" ]; then
               break
             fi
