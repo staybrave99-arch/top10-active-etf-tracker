@@ -3,7 +3,7 @@ import sys
 import time
 from urllib.parse import urlparse
 
-from scraper.db import get_conn, init_schema, save_etf_snapshot
+from scraper.db import get_conn, init_schema, save_etf_snapshot, save_stock_prices
 from scraper.prices import fetch_price_lookup
 from scraper.sites import capitalfund, cathay, ezmoney, fhtrust, fsit, nomura
 from scraper.utils import today_taipei
@@ -54,6 +54,7 @@ def main():
         price_lookup = {}
 
     failures = []
+    held_codes = set()
     for row in rows:
         ticker = row["代號"].strip()
         name = row["ETF名稱"].strip()
@@ -76,6 +77,7 @@ def main():
             if not result["holdings"]:
                 raise ValueError("no holdings parsed")
             attach_prices(result["holdings"], price_lookup)
+            held_codes.update(h["stock_code"] for h in result["holdings"])
             data_date = result["data_date"] or today_taipei()
             snapshot_id = save_etf_snapshot(
                 conn, ticker, name, data_date, result["net_asset"], result["holdings"]
@@ -90,6 +92,13 @@ def main():
             failures.append(ticker)
 
         time.sleep(1.5)
+
+    if held_codes:
+        price_rows = [
+            (code, *price_lookup[code]) for code in held_codes if code in price_lookup
+        ]
+        save_stock_prices(conn, today_taipei(), price_rows)
+        print(f"[PRICES] saved {len(price_rows)} stock_price rows for {today_taipei()}")
 
     conn.close()
 

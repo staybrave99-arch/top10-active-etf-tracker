@@ -29,6 +29,17 @@ ALTER TABLE etf_holding ADD COLUMN IF NOT EXISTS price NUMERIC;
 ALTER TABLE etf_holding ADD COLUMN IF NOT EXISTS change_pct NUMERIC;
 
 CREATE INDEX IF NOT EXISTS idx_etf_holding_snapshot_id ON etf_holding (snapshot_id);
+
+-- Independent daily price history per stock, decoupled from etf_holding
+-- so it can be backfilled (and keeps accumulating) even for dates where
+-- we don't have a matching ETF holdings snapshot.
+CREATE TABLE IF NOT EXISTS stock_price (
+    stock_code TEXT NOT NULL,
+    trade_date DATE NOT NULL,
+    price NUMERIC,
+    change_pct NUMERIC,
+    PRIMARY KEY (stock_code, trade_date)
+);
 """
 
 
@@ -84,3 +95,23 @@ def save_etf_snapshot(conn, ticker, etf_name, data_date, net_asset, holdings):
             )
     conn.commit()
     return snapshot_id
+
+
+def save_stock_prices(conn, trade_date, rows):
+    """rows: iterable of (stock_code, price, change_pct)."""
+    rows = list(rows)
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        execute_values(
+            cur,
+            """
+            INSERT INTO stock_price (stock_code, trade_date, price, change_pct)
+            VALUES %s
+            ON CONFLICT (stock_code, trade_date) DO UPDATE
+                SET price = EXCLUDED.price,
+                    change_pct = EXCLUDED.change_pct
+            """,
+            [(code, trade_date, price, change_pct) for code, price, change_pct in rows],
+        )
+    conn.commit()
