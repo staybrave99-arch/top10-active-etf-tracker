@@ -21,6 +21,7 @@ absolute NTD change -- so it's derived as change / (close - change).
 import csv
 import io
 import time
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 import requests
@@ -32,6 +33,12 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TWSE_URL = "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json"
 TPEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
+
+
+def _parse_roc_date(s):
+    """"1150724" (ROC year + MMDD, no separators) -> date(2026, 7, 24)."""
+    s = str(s).strip()
+    return date(int(s[:-4]) + 1911, int(s[-4:-2]), int(s[-2:]))
 
 
 def _change_pct(price, change):
@@ -58,15 +65,25 @@ def _get_with_retries(session, url, *, retries=3, backoff=3, **kwargs):
 
 
 def fetch_price_lookup():
-    """Return {stock_code: (price, change_pct)} covering TWSE + TPEx."""
+    """Return ({stock_code: (price, change_pct)}, trade_date) covering TWSE + TPEx.
+
+    trade_date comes from the exchanges' own "Date"/日期 field, not
+    today_taipei() -- both endpoints just keep serving the last session's
+    quotes on a non-trading weekday (holiday), so keying by the calendar
+    date the scraper happened to run on would file that stale data under
+    a fabricated trading day every time this runs on a holiday.
+    """
     session = get_session()
     lookup = {}
+    trade_date = None
 
     twse_resp = _get_with_retries(session, TWSE_URL, timeout=60)
     rows = list(csv.reader(io.StringIO(twse_resp.content.decode("utf-8"))))
     for row in rows[1:]:
         if len(row) < 10:
             continue
+        if trade_date is None:
+            trade_date = _parse_roc_date(row[0])
         code = row[1].strip()
         price = clean_number(row[8])
         if price is None:
@@ -76,6 +93,8 @@ def fetch_price_lookup():
 
     tpex_resp = _get_with_retries(session, TPEX_URL, timeout=60, verify=False)
     for item in tpex_resp.json():
+        if trade_date is None and item.get("Date"):
+            trade_date = _parse_roc_date(item["Date"])
         code = (item.get("SecuritiesCompanyCode") or "").strip()
         if not code or code in lookup:
             continue
@@ -85,4 +104,4 @@ def fetch_price_lookup():
         change = clean_number(item.get("Change"))
         lookup[code] = (price, _change_pct(price, change))
 
-    return lookup
+    return lookup, trade_date

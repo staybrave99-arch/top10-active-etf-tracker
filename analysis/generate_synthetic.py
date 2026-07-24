@@ -30,7 +30,7 @@ N_DAYS = 30
 def fetch_today_snapshot(csv_path="../Top10ActiveETF.csv"):
     """Scrape all 8 ETFs live to use as the synthetic dataset's anchor day."""
     rows = load_etf_list(csv_path)
-    price_lookup = fetch_price_lookup()
+    price_lookup, _price_trade_date = fetch_price_lookup()
 
     snapshots = []
     holdings = []

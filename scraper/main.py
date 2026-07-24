@@ -47,11 +47,11 @@ def main():
 
     print("[PRICES] fetching TWSE/TPEx daily quotes ...")
     try:
-        price_lookup = fetch_price_lookup()
-        print(f"[PRICES] loaded {len(price_lookup)} stock quotes")
+        price_lookup, price_trade_date = fetch_price_lookup()
+        print(f"[PRICES] loaded {len(price_lookup)} stock quotes for {price_trade_date}")
     except Exception as exc:
         print(f"[PRICES] failed to fetch price data, continuing without it: {exc}")
-        price_lookup = {}
+        price_lookup, price_trade_date = {}, None
 
     failures = []
     held_codes = set()
@@ -93,12 +93,12 @@ def main():
 
         time.sleep(1.5)
 
-    if held_codes:
+    if held_codes and price_trade_date:
         price_rows = [
             (code, *price_lookup[code]) for code in held_codes if code in price_lookup
         ]
-        save_stock_prices(conn, today_taipei(), price_rows)
-        print(f"[PRICES] saved {len(price_rows)} stock_price rows for {today_taipei()}")
+        save_stock_prices(conn, price_trade_date, price_rows)
+        print(f"[PRICES] saved {len(price_rows)} stock_price rows for {price_trade_date}")
 
     conn.close()
 
