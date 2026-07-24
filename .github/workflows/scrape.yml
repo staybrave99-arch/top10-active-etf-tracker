@@ -119,6 +119,6 @@ jobs:
         if: env.CHANGED == 'true'
         run: |
           cat > ntfy_payload.json <<'EOF'
-          {"topic":"ETF-Tracking-0577","title":"主動式ETF持股加碼指標已更新","message":"今天的圖表已產生，點擊查看","click":"https://staybrave99-arch.github.io/top10-active-etf-tracker/"}
+          {"topic":"ETF-Tracking-0577","title":"主動式ETF持股加碼指標已更新","message":"今天的圖表已產生：https://staybrave99-arch.github.io/top10-active-etf-tracker/","click":"https://staybrave99-arch.github.io/top10-active-etf-tracker/"}
           EOF
           curl -s -X POST https://ntfy.sh/ --data-binary @ntfy_payload.json
