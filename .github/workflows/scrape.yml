@@ -94,7 +94,7 @@ jobs:
         env:
           DATABASE_URL_RAW: ${{ secrets.DATABASE_URL }}
         run: |
-          export DATABASE_URL=$(python -c "import os,re; print(re.sub(r'@[^/]+/', '@localhost:15432/', os.environ['DATABASE_URL_RAW']))")
+          export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
           python analysis/generate_report.py
 
       - name: Stop DB proxy

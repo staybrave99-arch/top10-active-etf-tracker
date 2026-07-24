@@ -25,7 +25,7 @@ def _empty_page(reason: str) -> str:
 
 
 def main():
-    conn_str = os.environ["DATABASE_URL"]
+    conn_str = os.environ["DATABASE_URL"].strip().lstrip("﻿")
     holdings, etf_aum, prices, stock_names = fetch(conn_str)
 
     if holdings.empty:
