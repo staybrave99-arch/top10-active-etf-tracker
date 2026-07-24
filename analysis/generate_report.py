@@ -89,7 +89,7 @@ def main():
             print(f"trade_date={data['trade_date']} points={len(data['points'])}")
 
             highlight_lines = _quadrant_highlight_lines(report_with_bias, stock_names)
-            ntfy_message = "\n".join(["主動式ETF持股趨勢分析:"] + highlight_lines + ["", PAGES_URL])
+            ntfy_message = "\n".join(highlight_lines + ["", PAGES_URL])
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
