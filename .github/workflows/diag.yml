@@ -1,0 +1,20 @@
+name: One-off DB Diagnostic
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Inspect capitalfund.com.tw PCF payload
+        run: python analysis/diag.py
