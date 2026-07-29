@@ -1,55 +1,62 @@
+import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+import pandas as pd
 import psycopg2
 
-conn = psycopg2.connect(os.environ["DATABASE_URL"])
-cur = conn.cursor()
+from indicators import build_report, compute_flags_and_streaks
 
-print("=== each ticker's own latest snapshot ===")
-cur.execute("""
-    SELECT DISTINCT ON (s.ticker) s.ticker, s.data_date, s.id
-    FROM etf_snapshot s
-    ORDER BY s.ticker, s.data_date DESC
-""")
-latest_snapshots = cur.fetchall()
-for row in latest_snapshots:
-    print(row)
+conn_str = os.environ["DATABASE_URL"]
+conn = psycopg2.connect(conn_str)
 
-print()
-print("=== stock_code format sanity check (repr, to catch whitespace/leading-zero drift) ===")
-cur.execute("""
-    SELECT DISTINCT s.ticker, h.stock_code
+holdings = pd.read_sql(
+    """
+    SELECT s.ticker AS etf_code, h.stock_code, s.data_date AS trade_date,
+           h.shares, h.weight_pct AS weight
     FROM etf_holding h
     JOIN etf_snapshot s ON s.id = h.snapshot_id
-    WHERE s.id = ANY(%s)
-    ORDER BY h.stock_code, s.ticker
-""", ([row[2] for row in latest_snapshots],))
-rows = cur.fetchall()
-for ticker, code in rows[:20]:
-    print(ticker, repr(code), len(code))
+    """,
+    conn,
+)
+holdings["trade_date"] = pd.to_datetime(holdings["trade_date"])
+holdings["shares"] = holdings["shares"].astype(float)
+holdings["weight"] = holdings["weight"].astype(float)
 
-print()
-print("=== per-ticker holding count (own latest snapshot) ===")
-from collections import defaultdict
-by_code = defaultdict(set)
-by_ticker_count = defaultdict(int)
-for ticker, code in rows:
-    by_code[code].add(ticker)
-    by_ticker_count[ticker] += 1
-for ticker, n in sorted(by_ticker_count.items()):
-    print(ticker, n)
+etf_aum = pd.read_sql(
+    "SELECT ticker AS etf_code, data_date AS trade_date, net_asset AS aum FROM etf_snapshot",
+    conn,
+)
+etf_aum["trade_date"] = pd.to_datetime(etf_aum["trade_date"])
+etf_aum["aum"] = etf_aum["aum"].astype(float)
 
-print()
-print("=== stock_code overlap across ETFs, using EACH ticker's own latest snapshot ===")
-overlap = {code: tickers for code, tickers in by_code.items() if len(tickers) >= 2}
-if not overlap:
-    print("(none -- zero stocks are commonly held by 2+ ETFs right now)")
-for code, tickers in sorted(overlap.items(), key=lambda kv: -len(kv[1])):
-    print(code, sorted(tickers))
-
-print()
-print("=== sample known large-cap codes (2330/2454/2317) presence per ticker ===")
-for code in ("2330", "2454", "2317", "2308"):
-    holders = by_code.get(code, set())
-    print(code, "->", sorted(holders) if holders else "not held by anyone")
-
+prices = pd.read_sql("SELECT stock_code, trade_date, price AS close FROM stock_price", conn)
+prices["trade_date"] = pd.to_datetime(prices["trade_date"])
+prices["close"] = prices["close"].astype(float)
 conn.close()
+
+print("=== holdings ETF codes present ===")
+print(sorted(holdings["etf_code"].unique()))
+print("etf_aum rows:", len(etf_aum), "holdings rows:", len(holdings), "prices rows:", len(prices))
+
+for label, h in [("ALL (incl. 00991A)", holdings), ("EXCLUDING 00991A", holdings[holdings["etf_code"] != "00991A"])]:
+    print()
+    print(f"=== {label} ===")
+    report = build_report(h, etf_aum, prices)
+    by_date = report.dropna(subset=["bias"]).groupby("trade_date")
+    for d, g in by_date:
+        breadth = g["n_buy"] + g["n_sell"]
+        n_ge1 = (breadth >= 1).sum()
+        n_ge2 = (breadth >= 2).sum()
+        max_breadth = breadth.max()
+        top = g.loc[breadth.idxmax()] if len(g) else None
+        top_desc = f"{top['stock_code']} buy={top['n_buy']} sell={top['n_sell']}" if top is not None else "-"
+        print(f"{d.date()}: rows={len(g)} breadth>=1:{n_ge1} breadth>=2:{n_ge2} max_breadth={max_breadth} top={top_desc}")
+
+print()
+print("=== raw flag counts (STRICT) per day, all ETFs, before cross-ETF aggregation ===")
+scored = compute_flags_and_streaks(holdings, streak_mode="STRICT")
+flag_counts = scored.groupby(["trade_date", "flag"]).size().unstack(fill_value=0)
+print(flag_counts.tail(15))

@@ -14,7 +14,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python deps
-        run: pip install psycopg2-binary==2.9.12
+        run: pip install -r analysis/requirements.txt
 
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
