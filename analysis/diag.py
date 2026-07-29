@@ -1,4 +1,3 @@
-import json
 import os
 import sys
 
@@ -7,7 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import pandas as pd
 import psycopg2
 
-from indicators import build_report, compute_flags_and_streaks
+from indicators import build_report
 
 conn_str = os.environ["DATABASE_URL"]
 conn = psycopg2.connect(conn_str)
@@ -35,28 +34,28 @@ etf_aum["aum"] = etf_aum["aum"].astype(float)
 prices = pd.read_sql("SELECT stock_code, trade_date, price AS close FROM stock_price", conn)
 prices["trade_date"] = pd.to_datetime(prices["trade_date"])
 prices["close"] = prices["close"].astype(float)
+
+stock_names_df = pd.read_sql(
+    "SELECT DISTINCT ON (stock_code) stock_code, stock_name FROM etf_holding WHERE stock_name IS NOT NULL",
+    conn,
+)
+stock_names = dict(zip(stock_names_df["stock_code"], stock_names_df["stock_name"]))
 conn.close()
 
-print("=== holdings ETF codes present ===")
-print(sorted(holdings["etf_code"].unique()))
-print("etf_aum rows:", len(etf_aum), "holdings rows:", len(holdings), "prices rows:", len(prices))
+report = build_report(holdings, etf_aum, prices)
+report_with_bias = report.dropna(subset=["bias"])
 
-for label, h in [("ALL (incl. 00991A)", holdings), ("EXCLUDING 00991A", holdings[holdings["etf_code"] != "00991A"])]:
-    print()
-    print(f"=== {label} ===")
-    report = build_report(h, etf_aum, prices)
-    by_date = report.dropna(subset=["bias"]).groupby("trade_date")
-    for d, g in by_date:
-        breadth = g["n_buy"] + g["n_sell"]
-        n_ge1 = (breadth >= 1).sum()
-        n_ge2 = (breadth >= 2).sum()
-        max_breadth = breadth.max()
-        top = g.loc[breadth.idxmax()] if len(g) else None
-        top_desc = f"{top['stock_code']} buy={top['n_buy']} sell={top['n_sell']}" if top is not None else "-"
-        print(f"{d.date()}: rows={len(g)} breadth>=1:{n_ge1} breadth>=2:{n_ge2} max_breadth={max_breadth} top={top_desc}")
-
-print()
-print("=== raw flag counts (STRICT) per day, all ETFs, before cross-ETF aggregation ===")
-scored = compute_flags_and_streaks(holdings, streak_mode="STRICT")
-flag_counts = scored.groupby(["trade_date", "flag"]).size().unstack(fill_value=0)
-print(flag_counts.tail(15))
+print("=== every (date, stock) with breadth >= 2 (n_buy + n_sell), most recent 10 dates ===")
+recent_dates = sorted(report_with_bias["trade_date"].unique())[-10:]
+for d in recent_dates:
+    day = report_with_bias[report_with_bias["trade_date"] == d]
+    eligible = day[(day["n_buy"] + day["n_sell"]) >= 2]
+    same_dir = eligible[(eligible["n_buy"] >= 2) | (eligible["n_sell"] >= 2)]
+    print(f"--- {d.date()}: eligible={len(eligible)} same_direction={len(same_dir)} ---")
+    for _, r in eligible.iterrows():
+        name = stock_names.get(str(r["stock_code"]), "")
+        tag = "SAME-DIR" if (r["n_buy"] >= 2 or r["n_sell"] >= 2) else "mixed"
+        print(
+            f"  {r['stock_code']} {name} buy={r['n_buy']} sell={r['n_sell']} "
+            f"net_score={r['net_score']:.3f} bias={r['bias']:.2f} quadrant={r['quadrant']} [{tag}]"
+        )
