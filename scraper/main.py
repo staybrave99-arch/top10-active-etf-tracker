@@ -6,7 +6,29 @@ from urllib.parse import urlparse
 from scraper.db import get_conn, init_schema, save_etf_snapshot, save_stock_prices
 from scraper.prices import fetch_price_lookup
 from scraper.sites import capitalfund, cathay, ezmoney, fhtrust, fsit, nomura
-from scraper.utils import today_taipei
+from scraper.utils import now_taipei, today_taipei
+
+# The scrape is meant to run once daily after every fund site has posted its
+# real end-of-day PCF (observed ~21:00 Asia/Taipei) -- GitHub Actions' cron
+# already targets 22:00. Running well outside that window doesn't corrupt
+# data (capitalfund.com.tw's date2 field is now used specifically so it
+# can't), but it can mean some sites haven't refreshed yet, so flag it
+# loudly rather than silently saving early/stale-looking data.
+SCRAPE_WINDOW_START = (22, 0)
+SCRAPE_WINDOW_END = (23, 50)
+
+
+def _check_scrape_window():
+    now = now_taipei()
+    start = now.replace(hour=SCRAPE_WINDOW_START[0], minute=SCRAPE_WINDOW_START[1], second=0, microsecond=0)
+    end = now.replace(hour=SCRAPE_WINDOW_END[0], minute=SCRAPE_WINDOW_END[1], second=0, microsecond=0)
+    if not (start <= now <= end):
+        print(
+            f"[WARN] running at {now.strftime('%Y-%m-%d %H:%M %Z')}, outside the intended "
+            f"{SCRAPE_WINDOW_START[0]:02d}:{SCRAPE_WINDOW_START[1]:02d}-"
+            f"{SCRAPE_WINDOW_END[0]:02d}:{SCRAPE_WINDOW_END[1]:02d} Asia/Taipei scrape window -- "
+            f"some fund sites may not have posted today's real data yet"
+        )
 
 DISPATCH = {
     "www.ezmoney.com.tw": ezmoney.scrape,
@@ -39,6 +61,8 @@ def attach_prices(holdings, price_lookup):
 
 
 def main():
+    _check_scrape_window()
+
     csv_path = sys.argv[1] if len(sys.argv) > 1 else "Top10ActiveETF.csv"
     rows = load_etf_list(csv_path)
 

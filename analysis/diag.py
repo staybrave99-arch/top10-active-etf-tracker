@@ -1,33 +1,23 @@
-import json
 import os
-import sys
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import psycopg2
 
-from scraper.utils import get_session
+conn = psycopg2.connect(os.environ["DATABASE_URL"])
+cur = conn.cursor()
 
-print("Taipei time now:", datetime.now(ZoneInfo("Asia/Taipei")))
-print()
-
-session = get_session()
-for fund_id, ticker in [("399", "00982A"), ("500", "00992A")]:
-    resp = session.post(
-        "https://www.capitalfund.com.tw/CFWeb/api/etf/buyback",
-        json={"fundId": fund_id, "date": None},
-        headers={
-            "Referer": f"https://www.capitalfund.com.tw/etf/product/detail/{fund_id}/portfolio",
-            "Content-Type": "application/json",
-        },
-        timeout=30,
-    )
-    print(ticker, "status", resp.status_code)
-    data = resp.json().get("data") or {}
-    pcf = data.get("pcf") or {}
-    print(ticker, "pcf:", json.dumps(pcf, ensure_ascii=False, indent=2))
-    print(ticker, "top-level data keys:", list(data.keys()))
-    for k in data.keys():
-        if k != "pcf" and k != "stocks":
-            print(" ", k, "=", data[k])
-    print()
+# 00982A/00992A got a snapshot filed under 2026-07-29 by a manual run this
+# morning (09:29 Asia/Taipei), before capitalfund.com.tw's ~21:00 daily
+# refresh -- confirmed live at 09:50 that the site was still serving
+# 2026-07-28's NAV/holdings at that point, mislabeled by the old date1-based
+# parsing. Delete it; tonight's real 22:00 run will insert the correct
+# 2026-07-29 snapshot once the site has actually refreshed.
+cur.execute(
+    """
+    DELETE FROM etf_snapshot
+    WHERE ticker IN ('00982A', '00992A') AND data_date = '2026-07-29'
+    RETURNING ticker, data_date
+    """
+)
+print("deleted:", cur.fetchall())
+conn.commit()
+conn.close()

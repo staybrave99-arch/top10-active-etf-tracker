@@ -43,7 +43,11 @@ def scrape(ticker, url):
 
     pcf = payload.get("pcf") or {}
     net_asset = clean_number(pcf.get("nav"))
-    data_date = parse_date(pcf.get("date1"))
+    # date1 is when the report was generated (effectively "today" if you're
+    # looking before the site's ~21:00 daily refresh) -- date2 is the actual
+    # PCF data date. Before the refresh, date1 != date2 and using date1
+    # mislabels yesterday's still-current data as today's.
+    data_date = parse_date(pcf.get("date2")) or parse_date(pcf.get("date1"))
 
     holdings = []
     for row in payload.get("stocks") or []:

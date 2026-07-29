@@ -76,7 +76,11 @@ def parse_date(value):
         return None
 
 
-def today_taipei():
+def now_taipei():
     from zoneinfo import ZoneInfo
 
-    return datetime.now(ZoneInfo("Asia/Taipei")).date()
+    return datetime.now(ZoneInfo("Asia/Taipei"))
+
+
+def today_taipei():
+    return now_taipei().date()
