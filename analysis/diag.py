@@ -4,74 +4,52 @@ import psycopg2
 conn = psycopg2.connect(os.environ["DATABASE_URL"])
 cur = conn.cursor()
 
-print("=== recent etf_snapshot ===")
+print("=== each ticker's own latest snapshot ===")
 cur.execute("""
-    SELECT ticker, data_date, net_asset
-    FROM etf_snapshot
-    ORDER BY data_date DESC, ticker
-    LIMIT 40
+    SELECT DISTINCT ON (s.ticker) s.ticker, s.data_date, s.id
+    FROM etf_snapshot s
+    ORDER BY s.ticker, s.data_date DESC
 """)
-for row in cur.fetchall():
+latest_snapshots = cur.fetchall()
+for row in latest_snapshots:
     print(row)
 
 print()
-print("=== distinct data_date count per ticker (last 10 days) ===")
+print("=== stock_code format sanity check (repr, to catch whitespace/leading-zero drift) ===")
 cur.execute("""
-    SELECT ticker, COUNT(DISTINCT data_date) AS n_dates, MIN(data_date), MAX(data_date)
-    FROM etf_snapshot
-    WHERE data_date >= (SELECT MAX(data_date) FROM etf_snapshot) - INTERVAL '10 days'
-    GROUP BY ticker
-    ORDER BY ticker
-""")
-for row in cur.fetchall():
-    print(row)
-
-print()
-print("=== share-count changes day over day (last 8 days), per ticker ===")
-cur.execute("""
-    WITH ranked AS (
-        SELECT s.ticker, s.data_date, h.stock_code, h.shares,
-               LAG(h.shares) OVER (PARTITION BY s.ticker, h.stock_code ORDER BY s.data_date) AS prev_shares
-        FROM etf_holding h
-        JOIN etf_snapshot s ON s.id = h.snapshot_id
-        WHERE s.data_date >= (SELECT MAX(data_date) FROM etf_snapshot) - INTERVAL '8 days'
-    )
-    SELECT ticker, data_date,
-           COUNT(*) AS n_rows,
-           COUNT(*) FILTER (WHERE prev_shares IS NOT NULL AND shares <> prev_shares) AS n_changed,
-           COUNT(*) FILTER (WHERE prev_shares IS NOT NULL AND shares = prev_shares) AS n_unchanged
-    FROM ranked
-    GROUP BY ticker, data_date
-    ORDER BY ticker, data_date
-""")
-for row in cur.fetchall():
-    print(row)
-
-print()
-print("=== stock_code overlap across ETFs on latest date ===")
-cur.execute("""
-    SELECT h.stock_code, COUNT(DISTINCT s.ticker) AS n_etfs, STRING_AGG(DISTINCT s.ticker, ',')
+    SELECT DISTINCT s.ticker, h.stock_code
     FROM etf_holding h
     JOIN etf_snapshot s ON s.id = h.snapshot_id
-    WHERE s.data_date = (SELECT MAX(data_date) FROM etf_snapshot)
-    GROUP BY h.stock_code
-    HAVING COUNT(DISTINCT s.ticker) >= 2
-    ORDER BY n_etfs DESC
-    LIMIT 30
-""")
-for row in cur.fetchall():
-    print(row)
+    WHERE s.id = ANY(%s)
+    ORDER BY h.stock_code, s.ticker
+""", ([row[2] for row in latest_snapshots],))
+rows = cur.fetchall()
+for ticker, code in rows[:20]:
+    print(ticker, repr(code), len(code))
 
 print()
-print("=== total holding rows per latest snapshot ===")
-cur.execute("""
-    SELECT s.ticker, s.data_date, COUNT(*) FROM etf_holding h
-    JOIN etf_snapshot s ON s.id = h.snapshot_id
-    WHERE s.data_date = (SELECT MAX(data_date) FROM etf_snapshot)
-    GROUP BY s.ticker, s.data_date
-    ORDER BY s.ticker
-""")
-for row in cur.fetchall():
-    print(row)
+print("=== per-ticker holding count (own latest snapshot) ===")
+from collections import defaultdict
+by_code = defaultdict(set)
+by_ticker_count = defaultdict(int)
+for ticker, code in rows:
+    by_code[code].add(ticker)
+    by_ticker_count[ticker] += 1
+for ticker, n in sorted(by_ticker_count.items()):
+    print(ticker, n)
+
+print()
+print("=== stock_code overlap across ETFs, using EACH ticker's own latest snapshot ===")
+overlap = {code: tickers for code, tickers in by_code.items() if len(tickers) >= 2}
+if not overlap:
+    print("(none -- zero stocks are commonly held by 2+ ETFs right now)")
+for code, tickers in sorted(overlap.items(), key=lambda kv: -len(kv[1])):
+    print(code, sorted(tickers))
+
+print()
+print("=== sample known large-cap codes (2330/2454/2317) presence per ticker ===")
+for code in ("2330", "2454", "2317", "2308"):
+    holders = by_code.get(code, set())
+    print(code, "->", sorted(holders) if holders else "not held by anyone")
 
 conn.close()
