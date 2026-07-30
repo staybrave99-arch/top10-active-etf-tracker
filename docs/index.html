@@ -16,8 +16,6 @@
     --blue:           #2a78d6;
     --blue-soft:      #2a78d614;
     --blue-trail:     #2a78d666;
-    --warn-bg:        #fab21922;
-    --warn-text:      #7a5200;
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) .viz-root {
@@ -36,8 +34,6 @@
       --blue:           #3987e5;
       --blue-soft:      #3987e522;
       --blue-trail:     #3987e588;
-      --warn-bg:        #fab21933;
-      --warn-text:      #ffcf6b;
     }
   }
   :root[data-theme="dark"] .viz-root {
@@ -56,8 +52,6 @@
     --blue:           #3987e5;
     --blue-soft:      #3987e522;
     --blue-trail:     #3987e588;
-    --warn-bg:        #fab21933;
-    --warn-text:      #ffcf6b;
   }
 
   * { box-sizing: border-box; }
@@ -71,16 +65,6 @@
 
   h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
   .subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; }
-
-  .banner {
-    background: var(--warn-bg);
-    color: var(--warn-text);
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: 13px;
-    line-height: 1.5;
-    margin-bottom: 20px;
-  }
 
   .card {
     background: var(--surface-1);
@@ -119,6 +103,7 @@
   svg { display: block; width: 100%; height: auto; overflow: visible; }
   .axis-label { font-size: 12px; fill: var(--text-muted); }
   .quad-label { font-size: 12px; font-weight: 600; fill: var(--text-secondary); }
+  .quad-sublabel { font-size: 10px; fill: var(--text-muted); }
   .grid-line { stroke: var(--grid); stroke-width: 1; }
   .zero-line { stroke: var(--axis); stroke-width: 1; }
   .tick-label { font-size: 11px; fill: var(--text-muted); }
@@ -173,13 +158,6 @@
 <div class="viz-root">
   <h1>跨ETF個股籌碼象限圖</h1>
   <p class="subtitle" id="subtitle"></p>
-
-  <div class="banner">
-    ⚠️ <strong>本圖表已改用真實資料</strong>，但持股明細目前只累積約 5 天歷史（未回填、逐日累積中）——
-    NetScore 需要連續多天的加碼/減碼才會有意義的分數，現階段大部分股票的 streak 都還很短，
-    符合「至少 2 家 ETF 共同買賣」門檻的股票可能很少甚至掛零，<strong>目前訊號還很淺，尚不足以當真實投資參考</strong>。
-    股價的 BIAS 乖離率部分已有 27 個交易日歷史，計算基礎足夠。隨著每日排程持續累積持股資料，訊號會逐漸變得扎實。
-  </div>
 
   <div class="card">
     <div class="toolbar">
@@ -269,16 +247,25 @@ function render() {
   svg.appendChild(el('line', { class: 'zero-line', x1: xScale(0), y1: M.top, x2: xScale(0), y2: H - M.bottom }));
   svg.appendChild(el('line', { class: 'zero-line', x1: M.left, y1: yScale(0), x2: W - M.right, y2: yScale(0) }));
 
-  // quadrant labels
+  // quadrant labels (name + short description)
   const qlabel = (x, y, text, anchor) => {
     const t = el('text', { class: 'quad-label', x, y, 'text-anchor': anchor });
     t.textContent = text;
     svg.appendChild(t);
   };
+  const qsublabel = (x, y, text, anchor) => {
+    const t = el('text', { class: 'quad-sublabel', x, y, 'text-anchor': anchor });
+    t.textContent = text;
+    svg.appendChild(t);
+  };
   qlabel(xScale(xMax) - 6, M.top + 16, '順勢加碼', 'end');
-  qlabel(M.left + 6, M.top + 16, '逆勢加碼', 'start');
-  qlabel(xScale(xMax) - 6, H - M.bottom - 8, '強勢減碼', 'end');
-  qlabel(M.left + 6, H - M.bottom - 8, '弱勢減碼', 'start');
+  qsublabel(xScale(xMax) - 6, M.top + 32, '籌碼跟價格同步走強', 'end');
+  qlabel(M.left + 6, M.top + 16, '強勢減碼', 'start');
+  qsublabel(M.left + 6, M.top + 32, '逢高減碼', 'start');
+  qlabel(xScale(xMax) - 6, H - M.bottom - 24, '逆勢加碼', 'end');
+  qsublabel(xScale(xMax) - 6, H - M.bottom - 8, '逢低加碼', 'end');
+  qlabel(M.left + 6, H - M.bottom - 24, '弱勢減碼', 'start');
+  qsublabel(M.left + 6, H - M.bottom - 8, '籌碼跟價格同步走弱', 'start');
 
   // axis labels
   const xlab = el('text', { class: 'axis-label', x: W / 2, y: H - 10, 'text-anchor': 'middle' });
