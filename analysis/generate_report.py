@@ -19,14 +19,6 @@ NTFY_PAYLOAD_PATH = os.path.join(os.path.dirname(__file__), "..", "ntfy_payload.
 NTFY_TOPIC = "ETF-Tracking-0577"
 PAGES_URL = "https://staybrave99-arch.github.io/top10-active-etf-tracker/"
 
-# (label, quadrant tag, corner-distance score to rank candidates within that quadrant)
-QUADRANT_PICKS = [
-    ("最強勢", "順勢加碼", lambda ns, b: ns + b),
-    ("留意反轉", "強勢減碼", lambda ns, b: b - ns),
-    ("聰明錢先卡位", "逆勢加碼", lambda ns, b: ns - b),
-    ("最該迴避", "弱勢減碼", lambda ns, b: -ns - b),
-]
-
 
 def _empty_page(reason: str) -> str:
     return (
@@ -36,24 +28,58 @@ def _empty_page(reason: str) -> str:
     )
 
 
+def _format_pick(stock_code, stock_names):
+    code = str(stock_code)
+    name = stock_names.get(code, "")
+    return f"{code} {name}".rstrip()
+
+
+def _corner_pick(eligible, quadrant, score_fn, stock_names):
+    """Single best-scoring stock currently sitting in `quadrant` (used for the
+    two corners that are about *where a stock is now*, not how it got there).
+    """
+    candidates = eligible[eligible["quadrant"] == quadrant]
+    if candidates.empty:
+        return "無"
+    scores = candidates.apply(lambda r: score_fn(r["net_score"], r["bias"]), axis=1)
+    best = candidates.loc[scores.idxmax()]
+    return _format_pick(best["stock_code"], stock_names)
+
+
+def _trajectory_list(report_with_bias, latest, from_quadrant, to_quadrant, stock_names):
+    """Every stock that sat in `from_quadrant` on its prior day and has moved
+    to `to_quadrant` today -- these two corners are about the *move itself*
+    (a leading signal), so every qualifying stock is listed, not just one.
+    """
+    if latest.empty:
+        return "無"
+    latest_date = latest["trade_date"].iloc[0]
+    breadth = latest["n_buy"] + latest["n_sell"]
+    candidates = latest[(breadth >= PLOT_BREADTH_MIN) & (latest["quadrant"] == to_quadrant)]
+    if candidates.empty:
+        return "無"
+
+    history = report_with_bias[report_with_bias["trade_date"] < latest_date]
+    matches = []
+    for _, row in candidates.iterrows():
+        prior = history[history["stock_code"] == row["stock_code"]].sort_values("trade_date")
+        if not prior.empty and prior.iloc[-1]["quadrant"] == from_quadrant:
+            matches.append(_format_pick(row["stock_code"], stock_names))
+    return "、".join(matches) if matches else "無"
+
+
 def _quadrant_highlight_lines(report_with_bias, stock_names):
     latest_date = report_with_bias["trade_date"].max()
     latest = report_with_bias[report_with_bias["trade_date"] == latest_date]
     breadth = latest["n_buy"] + latest["n_sell"]
     eligible = latest[breadth >= PLOT_BREADTH_MIN]
 
-    lines = []
-    for label, quadrant, score_fn in QUADRANT_PICKS:
-        candidates = eligible[eligible["quadrant"] == quadrant]
-        if candidates.empty:
-            lines.append(f"{label}: 無")
-            continue
-        scores = candidates.apply(lambda r: score_fn(r["net_score"], r["bias"]), axis=1)
-        best = candidates.loc[scores.idxmax()]
-        code = str(best["stock_code"])
-        name = stock_names.get(code, "")
-        lines.append(f"{label}: {code} {name}".rstrip())
-    return lines
+    return [
+        f"最強勢: {_corner_pick(eligible, '順勢加碼', lambda ns, b: ns + b, stock_names)}",
+        f"留意反轉: {_trajectory_list(report_with_bias, latest, '順勢加碼', '強勢減碼', stock_names)}",
+        f"聰明錢先卡位: {_trajectory_list(report_with_bias, latest, '弱勢減碼', '逆勢加碼', stock_names)}",
+        f"最該迴避: {_corner_pick(eligible, '弱勢減碼', lambda ns, b: -ns - b, stock_names)}",
+    ]
 
 
 def _write_ntfy_payload(message: str):
