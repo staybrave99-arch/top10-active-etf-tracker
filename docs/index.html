@@ -12,10 +12,8 @@
     --border:         rgba(11,11,11,0.10);
     --red:            #e34948;
     --red-soft:       #e3494814;
-    --red-trail:      #e3494866;
     --blue:           #2a78d6;
     --blue-soft:      #2a78d614;
-    --blue-trail:     #2a78d666;
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) .viz-root {
@@ -30,10 +28,8 @@
       --border:         rgba(255,255,255,0.10);
       --red:            #e66767;
       --red-soft:       #e6676722;
-      --red-trail:      #e6676788;
       --blue:           #3987e5;
       --blue-soft:      #3987e522;
-      --blue-trail:     #3987e588;
     }
   }
   :root[data-theme="dark"] .viz-root {
@@ -48,10 +44,8 @@
     --border:         rgba(255,255,255,0.10);
     --red:            #e66767;
     --red-soft:       #e6676722;
-    --red-trail:      #e6676788;
     --blue:           #3987e5;
     --blue-soft:      #3987e522;
-    --blue-trail:     #3987e588;
   }
 
   * { box-sizing: border-box; }
@@ -84,9 +78,6 @@
   }
   .legend { display: flex; gap: 16px; align-items: center; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
   .legend-item { display: flex; align-items: center; gap: 6px; }
-  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  .swatch.red { background: var(--red); }
-  .swatch.blue { background: var(--blue); }
 
   button.toggle {
     font: inherit;
@@ -162,10 +153,9 @@
   <div class="card">
     <div class="toolbar">
       <div class="legend">
-        <span class="legend-item"><span class="swatch red"></span>淨加碼（NetScore ≥ 0）</span>
-        <span class="legend-item"><span class="swatch blue"></span>淨減碼（NetScore &lt; 0）</span>
         <span class="legend-item">氣泡大小 = 廣度（買超+賣超ETF家數）</span>
-        <span class="legend-item">淡色軌跡 = 最近5個交易日走勢</span>
+        <span class="legend-item">顏色 = 個股（同色同一檔，右側=淨加碼／左側=淨減碼）</span>
+        <span class="legend-item">軌跡：越接近今天顏色越深、圓點越大</span>
       </div>
       <button class="toggle" id="tableToggle">切換表格檢視</button>
     </div>
@@ -177,7 +167,7 @@
 <div class="tooltip" id="tooltip"></div>
 
 <script>
-const DATA = {"trade_date": "2026-08-04", "points": []};
+const DATA = {"trade_date": "2026-08-04", "points": [{"stock_code": "6139", "stock_name": "亞翔", "net_score": 513.76, "bias": -7.06, "quadrant": "逆勢加碼", "n_buy": 1, "n_sell": 0, "breadth": 1, "quadrant_streak": 8, "max_buy_streak": 1, "max_sell_streak": 0, "close": 765.0, "trail": [{"date": "2026-07-23", "net_score": 0.0, "bias": -2.26}, {"date": "2026-07-24", "net_score": 0.0, "bias": -4.12}, {"date": "2026-07-28", "net_score": 0.0, "bias": -12.44}, {"date": "2026-07-30", "net_score": 0.0, "bias": -23.64}, {"date": "2026-08-04", "net_score": 513.76, "bias": -7.06}]}, {"stock_code": "6531", "stock_name": "愛普*", "net_score": 266.58, "bias": -12.85, "quadrant": "逆勢加碼", "n_buy": 1, "n_sell": 0, "breadth": 1, "quadrant_streak": 7, "max_buy_streak": 1, "max_sell_streak": 0, "close": 733.0, "trail": [{"date": "2026-07-23", "net_score": 242.06, "bias": -2.51}, {"date": "2026-07-24", "net_score": 314.58, "bias": -6.25}, {"date": "2026-07-28", "net_score": 0.0, "bias": -14.52}, {"date": "2026-07-30", "net_score": 0.0, "bias": -30.0}, {"date": "2026-08-04", "net_score": 266.58, "bias": -12.85}]}, {"stock_code": "6831", "stock_name": "邁科", "net_score": 169.64, "bias": -15.76, "quadrant": "逆勢加碼", "n_buy": 1, "n_sell": 0, "breadth": 1, "quadrant_streak": 9, "max_buy_streak": 1, "max_sell_streak": 0, "close": 565.0, "trail": [{"date": "2026-07-24", "net_score": 0.0, "bias": -9.77}, {"date": "2026-07-28", "net_score": 0.0, "bias": -15.22}, {"date": "2026-07-29", "net_score": 0.0, "bias": -29.9}, {"date": "2026-07-30", "net_score": 0.0, "bias": -32.67}, {"date": "2026-08-04", "net_score": 169.64, "bias": -15.76}]}, {"stock_code": "2351", "stock_name": "順德", "net_score": 106.63, "bias": -12.1, "quadrant": "逆勢加碼", "n_buy": 1, "n_sell": 0, "breadth": 1, "quadrant_streak": 7, "max_buy_streak": 1, "max_sell_streak": 0, "close": 156.5, "trail": [{"date": "2026-07-23", "net_score": 0.0, "bias": -16.06}, {"date": "2026-07-24", "net_score": 0.0, "bias": -16.57}, {"date": "2026-07-28", "net_score": 0.0, "bias": -16.05}, {"date": "2026-07-30", "net_score": 0.0, "bias": -27.4}, {"date": "2026-08-04", "net_score": 106.63, "bias": -12.1}]}, {"stock_code": "2303", "stock_name": "聯電", "net_score": 0.0, "bias": -16.68, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 2, "max_buy_streak": 0, "max_sell_streak": 0, "close": 118.0, "trail": [{"date": "2026-07-24", "net_score": 0.0, "bias": -16.94}, {"date": "2026-07-28", "net_score": 0.0, "bias": -17.21}, {"date": "2026-07-29", "net_score": -216.88, "bias": -31.27}, {"date": "2026-07-30", "net_score": 609.99, "bias": -24.86}, {"date": "2026-08-04", "net_score": 0.0, "bias": -16.68}]}, {"stock_code": "1815", "stock_name": "富喬", "net_score": 0.0, "bias": -20.63, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 3, "max_buy_streak": 0, "max_sell_streak": 0, "close": 72.9, "trail": [{"date": "2026-07-20", "net_score": 0.0, "bias": -20.55}, {"date": "2026-07-21", "net_score": 0.0, "bias": -17.44}, {"date": "2026-08-04", "net_score": 0.0, "bias": -20.63}]}, {"stock_code": "1303", "stock_name": "南亞塑膠工業", "net_score": 0.0, "bias": -11.25, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 2, "max_buy_streak": 0, "max_sell_streak": 0, "close": 165.0, "trail": [{"date": "2026-07-24", "net_score": 153.02, "bias": -6.07}, {"date": "2026-07-28", "net_score": 0.0, "bias": -8.55}, {"date": "2026-07-29", "net_score": -969.81, "bias": -25.44}, {"date": "2026-07-30", "net_score": 0.0, "bias": -23.16}, {"date": "2026-08-04", "net_score": 0.0, "bias": -11.25}]}, {"stock_code": "1519", "stock_name": "華城", "net_score": 0.0, "bias": -0.72, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 2, "max_buy_streak": 0, "max_sell_streak": 0, "close": 703.0, "trail": [{"date": "2026-07-23", "net_score": 0.0, "bias": -3.91}, {"date": "2026-07-24", "net_score": 0.0, "bias": -4.27}, {"date": "2026-07-28", "net_score": 0.0, "bias": 0.21}, {"date": "2026-07-30", "net_score": 0.0, "bias": -7.15}, {"date": "2026-08-04", "net_score": 0.0, "bias": -0.72}]}, {"stock_code": "1785", "stock_name": "光洋科", "net_score": 0.0, "bias": -9.96, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 7, "max_buy_streak": 0, "max_sell_streak": 0, "close": 106.5, "trail": [{"date": "2026-07-23", "net_score": 0.0, "bias": -16.01}, {"date": "2026-07-24", "net_score": 0.0, "bias": -17.92}, {"date": "2026-07-28", "net_score": 9.61, "bias": -16.18}, {"date": "2026-07-30", "net_score": 15.98, "bias": -26.32}, {"date": "2026-08-04", "net_score": 0.0, "bias": -9.96}]}, {"stock_code": "2308", "stock_name": "台達電", "net_score": 0.0, "bias": -12.44, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 4, "max_buy_streak": 0, "max_sell_streak": 0, "close": 1580.0, "trail": [{"date": "2026-07-24", "net_score": -70.63, "bias": -5.34}, {"date": "2026-07-28", "net_score": 0.0, "bias": -6.8}, {"date": "2026-07-29", "net_score": 0.0, "bias": -19.73}, {"date": "2026-07-30", "net_score": 407.66, "bias": -16.92}, {"date": "2026-08-04", "net_score": 0.0, "bias": -12.44}]}, {"stock_code": "2327", "stock_name": "國巨*", "net_score": 0.0, "bias": -24.37, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 3, "max_buy_streak": 0, "max_sell_streak": 0, "close": 552.0, "trail": [{"date": "2026-07-24", "net_score": 0.0, "bias": -25.97}, {"date": "2026-07-28", "net_score": -762.26, "bias": -26.27}, {"date": "2026-07-29", "net_score": 0.0, "bias": -38.25}, {"date": "2026-07-30", "net_score": 0.0, "bias": -41.99}, {"date": "2026-08-04", "net_score": 0.0, "bias": -24.37}]}, {"stock_code": "2330", "stock_name": "台積電", "net_score": 0.0, "bias": -0.67, "quadrant": "逆勢加碼", "n_buy": 0, "n_sell": 0, "breadth": 0, "quadrant_streak": 3, "max_buy_streak": 0, "max_sell_streak": 0, "close": 2370.0, "trail": [{"date": "2026-07-24", "net_score": -433.69, "bias": -2.61}, {"date": "2026-07-28", "net_score": -1714.09, "bias": -2.63}, {"date": "2026-07-29", "net_score": 242.45, "bias": -8.52}, {"date": "2026-07-30", "net_score": 931.37, "bias": -7.92}, {"date": "2026-08-04", "net_score": 0.0, "bias": -0.67}]}]};
 
 function render() {
   const root = document.querySelector('.viz-root');
@@ -186,7 +176,7 @@ function render() {
   const dark = themeAttr ? themeAttr === 'dark' : isDark;
 
   document.getElementById('subtitle').textContent =
-    `資料日期：${DATA.trade_date} ・ 篩選條件：廣度 ≥ 2，NetScore 前後各取最多 10 檔（共 ${DATA.points.length} 檔）`;
+    `資料日期：${DATA.trade_date} ・ 篩選條件：NetScore 前後各取最多 10 檔，且同一象限連續停留 ≥ 2 天（共 ${DATA.points.length} 檔）`;
 
   const pts = DATA.points;
   const W = 960, H = 620;
@@ -227,10 +217,20 @@ function render() {
   // quadrant backgrounds
   const redSoft = getComputedStyle(root).getPropertyValue('--red-soft').trim();
   const blueSoft = getComputedStyle(root).getPropertyValue('--blue-soft').trim();
-  const red = getComputedStyle(root).getPropertyValue('--red').trim();
-  const blue = getComputedStyle(root).getPropertyValue('--blue').trim();
-  const redTrail = getComputedStyle(root).getPropertyValue('--red-trail').trim();
-  const blueTrail = getComputedStyle(root).getPropertyValue('--blue-trail').trim();
+
+  // One color per stock (identity), not per buy/sell sign -- which side of
+  // the chart a dot sits on already carries buy/sell via the quadrant
+  // background tint above. Hashed off stock_code (never rank/position), so
+  // a stock keeps its color from one day to the next even as the plotted
+  // set changes.
+  const CATEGORICAL = dark
+    ? ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767']
+    : ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+  function colorForStock(code) {
+    let h = 0;
+    for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
+    return CATEGORICAL[h % CATEGORICAL.length];
+  }
 
   svg.appendChild(el('rect', { x: xScale(0), y: M.top, width: xScale(xMax) - xScale(0), height: yScale(0) - M.top, fill: redSoft }));
   svg.appendChild(el('rect', { x: M.left, y: M.top, width: xScale(0) - M.left, height: yScale(0) - M.top, fill: blueSoft }));
@@ -300,6 +300,7 @@ function render() {
       ['BIAS', p.bias.toFixed(2) + '%'],
       ['收盤價', p.close !== null ? p.close.toFixed(2) : '—'],
       ['象限', p.quadrant || '—'],
+      ['連續停留天數', String(p.quadrant_streak)],
       ['買超ETF家數', String(p.n_buy)],
       ['賣超ETF家數', String(p.n_sell)],
       ['最長連續加碼天數', String(p.max_buy_streak)],
@@ -340,17 +341,36 @@ function render() {
   // other labels AND other dots.
   const placedDots = [];
   pts.forEach(p => {
-    const color = p.net_score >= 0 ? red : blue;
-    const trailColor = p.net_score >= 0 ? redTrail : blueTrail;
+    const color = colorForStock(p.stock_code);
 
+    // Each trail segment gets more opaque (and each waypoint dot bigger)
+    // the closer it is to today, so the eye reads direction from the
+    // gradient instead of having to infer it from a flat-shaded line.
+    // The trail's last leg runs straight into today's big bubble below,
+    // which anchors it as the "current" end.
     const trailPts = p.trail.filter(t => t.net_score !== null && t.bias !== null);
-    if (trailPts.length > 1) {
-      const d = trailPts.map((t, i) => `${i === 0 ? 'M' : 'L'} ${xScale(t.net_score)} ${yScale(t.bias)}`).join(' ');
-      const path = el('path', { class: 'trail-path', d, stroke: trailColor, opacity: 0.55 });
-      svg.appendChild(path);
+    const n = trailPts.length;
+    if (n > 1) {
+      for (let i = 0; i < n - 1; i++) {
+        const a = trailPts[i], b = trailPts[i + 1];
+        const t = i / (n - 1);
+        const seg = el('path', {
+          class: 'trail-path',
+          d: `M ${xScale(a.net_score)} ${yScale(a.bias)} L ${xScale(b.net_score)} ${yScale(b.bias)}`,
+          stroke: color,
+          opacity: (0.15 + t * 0.55).toFixed(2),
+        });
+        svg.appendChild(seg);
+      }
       trailPts.forEach((t, i) => {
-        if (i === trailPts.length - 1) return;
-        svg.appendChild(el('circle', { cx: xScale(t.net_score), cy: yScale(t.bias), r: 2.5, fill: trailColor }));
+        if (i === n - 1) return;
+        const step = i / Math.max(n - 2, 1);
+        svg.appendChild(el('circle', {
+          cx: xScale(t.net_score), cy: yScale(t.bias),
+          r: (2 + step * 2.5).toFixed(1),
+          fill: color,
+          opacity: (0.35 + step * 0.45).toFixed(2),
+        }));
       });
     }
 
@@ -408,7 +428,7 @@ function render() {
   const thead = document.createElement('thead');
   thead.innerHTML = '';
   const headRow = document.createElement('tr');
-  ['代號', '名稱', '象限', 'NetScore', 'BIAS(%)', '收盤價', '買超家數', '賣超家數', '最長連買', '最長連賣'].forEach(h => {
+  ['代號', '名稱', '象限', '連續停留天數', 'NetScore', 'BIAS(%)', '收盤價', '買超家數', '賣超家數', '最長連買', '最長連賣'].forEach(h => {
     const th = document.createElement('th');
     th.textContent = h;
     headRow.appendChild(th);
@@ -422,6 +442,7 @@ function render() {
       p.stock_code,
       p.stock_name || '—',
       p.quadrant || '—',
+      String(p.quadrant_streak),
       p.net_score.toFixed(2),
       p.bias.toFixed(2),
       p.close !== null ? p.close.toFixed(2) : '—',
@@ -433,7 +454,7 @@ function render() {
     cells.forEach((c, i) => {
       const td = document.createElement('td');
       td.textContent = c;
-      if (i === 3) td.className = p.net_score >= 0 ? 'pos' : 'neg';
+      if (i === 4) td.className = p.net_score >= 0 ? 'pos' : 'neg';
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
