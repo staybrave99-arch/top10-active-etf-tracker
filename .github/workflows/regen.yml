@@ -1,0 +1,62 @@
+name: One-off Report Regen
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: pip install -r analysis/requirements.txt
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Start DB proxy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_DB_API_TOKEN }}
+        run: |
+          nohup flyctl proxy 15432:5432 -a top10-active-etf-db > proxy.log 2>&1 &
+          echo $! > proxy.pid
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/15432) 2>/dev/null; then
+              echo "proxy ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Generate report
+        env:
+          DATABASE_URL_RAW: ${{ secrets.DATABASE_URL }}
+        run: |
+          export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
+          python analysis/generate_report.py
+
+      - name: Stop DB proxy
+        if: always()
+        run: kill "$(cat proxy.pid)" 2>/dev/null || true
+
+      - name: Commit report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html docs/.nojekyll
+          if git diff --cached --quiet; then
+            echo "No change in generated report, skipping commit."
+          else
+            git commit -m "Regenerate chart: quadrant-streak filter, per-stock colors"
+            git push
+          fi
+
+      - name: Show ntfy payload (no send)
+        run: cat ntfy_payload.json
