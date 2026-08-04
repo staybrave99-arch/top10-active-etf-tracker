@@ -1,5 +1,6 @@
 """Filters the full indicator report down to what the quadrant chart plots
-(top/bottom N by net_score, breadth >= min) and attaches each plotted
+(top/bottom N by net_score, then requiring the stock to have stayed in the
+same quadrant for at least 2 consecutive days) and attaches each plotted
 stock's N-day trail of prior (net_score, bias) positions.
 """
 
@@ -7,25 +8,24 @@ import json
 
 import pandas as pd
 
-from indicators import build_report
+from indicators import build_report, compute_quadrant_streaks
 
-PLOT_BREADTH_MIN = 2
 PLOT_TOP_N = 10
+PLOT_MIN_QUADRANT_STREAK = 2
 TRAIL_DAYS = 5
 
 
 def prepare_chart_data(report: pd.DataFrame, stock_names: dict | None = None):
     stock_names = stock_names or {}
     report = report.dropna(subset=["bias"]).copy()
-    latest_date = report["trade_date"].max()
-    latest = report[report["trade_date"] == latest_date].copy()
+    streaked = compute_quadrant_streaks(report)
+    latest_date = streaked["trade_date"].max()
+    latest = streaked[streaked["trade_date"] == latest_date].copy()
 
-    breadth = latest["n_buy"] + latest["n_sell"]
-    eligible = latest[breadth >= PLOT_BREADTH_MIN].copy()
-
-    top_buy = eligible.sort_values("net_score", ascending=False).head(PLOT_TOP_N)
-    top_sell = eligible.sort_values("net_score", ascending=True).head(PLOT_TOP_N)
-    plotted = pd.concat([top_buy, top_sell]).drop_duplicates("stock_code")
+    top_buy = latest.sort_values("net_score", ascending=False).head(PLOT_TOP_N)
+    top_sell = latest.sort_values("net_score", ascending=True).head(PLOT_TOP_N)
+    pool = pd.concat([top_buy, top_sell]).drop_duplicates("stock_code")
+    plotted = pool[pool["quadrant_streak"] >= PLOT_MIN_QUADRANT_STREAK]
 
     history = report[report["stock_code"].isin(plotted["stock_code"])].sort_values("trade_date")
 
@@ -51,6 +51,7 @@ def prepare_chart_data(report: pd.DataFrame, stock_names: dict | None = None):
                 "n_buy": int(row["n_buy"]),
                 "n_sell": int(row["n_sell"]),
                 "breadth": int(row["n_buy"] + row["n_sell"]),
+                "quadrant_streak": int(row["quadrant_streak"]),
                 "max_buy_streak": int(row["max_buy_streak"]),
                 "max_sell_streak": int(row["max_sell_streak"]),
                 "close": None if pd.isna(row["close"]) else round(float(row["close"]), 2),

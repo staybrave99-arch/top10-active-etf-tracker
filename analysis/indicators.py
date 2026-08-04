@@ -169,3 +169,35 @@ def build_report(
     merged = agg.merge(bias_df, on=["trade_date", "stock_code"], how="left")
     merged["quadrant"] = merged.apply(lambda r: classify_quadrant(r["net_score"], r["bias"]), axis=1)
     return merged
+
+
+def compute_quadrant_streaks(report_with_bias: pd.DataFrame) -> pd.DataFrame:
+    """For each (stock_code, trade_date) row, how many consecutive trading
+    days (ending at that date, inclusive) the stock's quadrant has stayed
+    the same ('quadrant_streak'), and what quadrant immediately preceded
+    that streak ('quadrant_before_streak', None if there's no prior day or
+    the prior day has no quadrant).
+    """
+
+    def _per_stock(g):
+        code = g.name
+        g = g.sort_values("trade_date").reset_index(drop=True)
+        g["stock_code"] = code
+        streak, before = [], []
+        run = 0
+        prev_q = None
+        pre_streak_q = None
+        for q in g["quadrant"]:
+            if q == prev_q:
+                run += 1
+            else:
+                run = 1
+                pre_streak_q = prev_q
+            streak.append(run)
+            before.append(pre_streak_q)
+            prev_q = q
+        g["quadrant_streak"] = streak
+        g["quadrant_before_streak"] = before
+        return g
+
+    return report_with_bias.groupby("stock_code", group_keys=False).apply(_per_stock)
