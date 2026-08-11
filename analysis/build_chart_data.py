@@ -1,7 +1,7 @@
-"""Filters the full indicator report down to what the quadrant chart plots
-(top/bottom N by net_score, then requiring the stock to have stayed in the
-same quadrant for at least 2 consecutive days) and attaches each plotted
-stock's N-day trail of prior (net_score, bias) positions.
+"""Builds the quadrant chart's point+trail data for an explicit list of
+stock codes (the ones named in the ntfy notification -- see
+generate_report._quadrant_highlight_lines) so the chart and the
+notification always agree on which stocks are being called out.
 """
 
 import json
@@ -10,22 +10,20 @@ import pandas as pd
 
 from indicators import build_report, compute_quadrant_streaks
 
-PLOT_TOP_N = 10
-PLOT_MIN_QUADRANT_STREAK = 2
 TRAIL_DAYS = 5
 
 
-def prepare_chart_data(report: pd.DataFrame, stock_names: dict | None = None):
+def prepare_chart_data(report: pd.DataFrame, stock_names: dict | None, highlighted_codes: list[str]):
     stock_names = stock_names or {}
     report = report.dropna(subset=["bias"]).copy()
     streaked = compute_quadrant_streaks(report)
     latest_date = streaked["trade_date"].max()
     latest = streaked[streaked["trade_date"] == latest_date].copy()
 
-    top_buy = latest.sort_values("net_score", ascending=False).head(PLOT_TOP_N)
-    top_sell = latest.sort_values("net_score", ascending=True).head(PLOT_TOP_N)
-    pool = pd.concat([top_buy, top_sell]).drop_duplicates("stock_code")
-    plotted = pool[pool["quadrant_streak"] >= PLOT_MIN_QUADRANT_STREAK]
+    plotted = latest[latest["stock_code"].isin(highlighted_codes)].copy()
+    order = {code: i for i, code in enumerate(highlighted_codes)}
+    plotted["_order"] = plotted["stock_code"].map(order)
+    plotted = plotted.sort_values("_order")
 
     history = report[report["stock_code"].isin(plotted["stock_code"])].sort_values("trade_date")
 
@@ -69,8 +67,12 @@ if __name__ == "__main__":
     with open("synthetic_stock_names.json", encoding="utf-8") as f:
         stock_names = json.load(f)
 
+    from generate_report import _quadrant_highlight_lines  # local: avoids a circular import at module load
+
     report = build_report(holdings, etf_aum, prices)
-    data = prepare_chart_data(report, stock_names)
+    report_with_bias = report.dropna(subset=["bias"])
+    _lines, highlighted_codes = _quadrant_highlight_lines(report_with_bias, stock_names)
+    data = prepare_chart_data(report, stock_names, highlighted_codes)
     print(f"trade_date={data['trade_date']} points={len(data['points'])}")
     with open("chart_data.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

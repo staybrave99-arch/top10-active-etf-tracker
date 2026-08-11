@@ -176,7 +176,7 @@ function render() {
   const dark = themeAttr ? themeAttr === 'dark' : isDark;
 
   document.getElementById('subtitle').textContent =
-    `資料日期：${DATA.trade_date} ・ 篩選條件：NetScore 前後各取最多 10 檔，且同一象限連續停留 ≥ 2 天（共 ${DATA.points.length} 檔）`;
+    `資料日期：${DATA.trade_date} ・ 顯示範圍：ntfy 通知列出的最強勢／留意反轉／聰明錢先卡位／最該迴避股票（共 ${DATA.points.length} 檔）`;
 
   const pts = DATA.points;
   const W = 960, H = 620;
@@ -191,7 +191,17 @@ function render() {
   const xMax = Math.max(...xs.map(Math.abs), ...allTrailX.map(Math.abs), 1) * 1.15;
   const yMax = Math.max(...ys.map(Math.abs), ...allTrailY.map(Math.abs), 1) * 1.15;
 
-  const xScale = v => M.left + (v + xMax) / (2 * xMax) * plotW;
+  // NetScore commonly spans several orders of magnitude across the plotted
+  // stocks (a handful of NTD-thousands next to many single/double digits),
+  // so a linear x-axis crushes everything but the extreme outlier(s) into a
+  // sliver next to the y-axis. A signed log ("symlog") transform keeps the
+  // sign (buy/sell side) while compressing magnitude, so small and large
+  // scores both get visually distinguishable positions.
+  const logT = v => Math.sign(v) * Math.log10(Math.abs(v) + 1);
+  const invLogT = t => Math.sign(t) * (Math.pow(10, Math.abs(t)) - 1);
+  const xMaxLog = logT(xMax);
+
+  const xScale = v => M.left + (logT(v) + xMaxLog) / (2 * xMaxLog) * plotW;
   const yScale = v => M.top + (yMax - v) / (2 * yMax) * plotH;
 
   const breadths = pts.map(p => p.breadth);
@@ -237,9 +247,13 @@ function render() {
   svg.appendChild(el('rect', { x: xScale(0), y: yScale(0), width: xScale(xMax) - xScale(0), height: yScale(-yMax) - yScale(0), fill: redSoft }));
   svg.appendChild(el('rect', { x: M.left, y: yScale(0), width: xScale(0) - M.left, height: yScale(-yMax) - yScale(0), fill: blueSoft }));
 
-  // gridlines (light)
+  // gridlines (light) -- x fractions are of xMaxLog (even spacing in log
+  // space), converted back to a raw NetScore via invLogT before scaling.
   [-1, -0.5, 0.5, 1].forEach(f => {
-    svg.appendChild(el('line', { class: 'grid-line', x1: xScale(f * xMax), y1: M.top, x2: xScale(f * xMax), y2: H - M.bottom }));
+    const gx = xScale(invLogT(f * xMaxLog));
+    svg.appendChild(el('line', { class: 'grid-line', x1: gx, y1: M.top, x2: gx, y2: H - M.bottom }));
+  });
+  [-1, -0.5, 0.5, 1].forEach(f => {
     svg.appendChild(el('line', { class: 'grid-line', x1: M.left, y1: yScale(f * yMax), x2: W - M.right, y2: yScale(f * yMax) }));
   });
 
@@ -269,7 +283,7 @@ function render() {
 
   // axis labels
   const xlab = el('text', { class: 'axis-label', x: W / 2, y: H - 10, 'text-anchor': 'middle' });
-  xlab.textContent = 'NetScore（跨ETF淨加碼分數，AUM加權）→';
+  xlab.textContent = 'NetScore（跨ETF淨加碼分數，AUM加權，對數座標）→';
   svg.appendChild(xlab);
   const ylab = el('text', { class: 'axis-label', x: -H / 2, y: 16, 'text-anchor': 'middle', transform: 'rotate(-90)' });
   ylab.textContent = 'BIAS 20日乖離率（%）→';
