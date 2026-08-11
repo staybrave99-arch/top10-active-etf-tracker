@@ -143,13 +143,18 @@ def compute_bias(prices: pd.DataFrame, window: int = MA_WINDOW) -> pd.DataFrame:
 
 
 def classify_quadrant(net_score, bias):
-    if pd.isna(net_score) or pd.isna(bias):
+    """None on either axis (not just NaN): net_score == 0 means no ETF
+    flagged a buy or sell that day (no signal, not "accumulation" merely
+    because 0 >= 0), and bias == 0 means the close sits exactly on its
+    20-day MA -- both are boundary cases that belong to no quadrant.
+    """
+    if pd.isna(net_score) or pd.isna(bias) or net_score == 0 or bias == 0:
         return None
-    if net_score >= 0 and bias >= 0:
+    if net_score > 0 and bias > 0:
         return "順勢加碼"
-    if net_score >= 0 and bias < 0:
+    if net_score > 0 and bias < 0:
         return "逆勢加碼"
-    if net_score < 0 and bias >= 0:
+    if net_score < 0 and bias > 0:
         return "強勢減碼"
     return "弱勢減碼"
 
