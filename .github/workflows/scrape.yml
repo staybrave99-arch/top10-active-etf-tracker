@@ -90,12 +90,12 @@ jobs:
             sleep 1
           done
 
-      - name: Generate report
+      - name: Generate top-movers report
         env:
           DATABASE_URL_RAW: ${{ secrets.DATABASE_URL }}
         run: |
           export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
-          python analysis/generate_report.py
+          python analysis/generate_top_movers_report.py
 
       - name: Stop DB proxy
         if: always()
@@ -105,12 +105,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html docs/.nojekyll
+          git add docs/top_movers.html docs/.nojekyll
           if git diff --cached --quiet; then
             echo "No change in generated report, skipping commit."
             echo "CHANGED=false" >> "$GITHUB_ENV"
           else
-            git commit -m "Update quadrant chart $(date -u +%Y-%m-%d)"
+            git commit -m "Update top-movers report $(date -u +%Y-%m-%d)"
             git push
             echo "CHANGED=true" >> "$GITHUB_ENV"
           fi

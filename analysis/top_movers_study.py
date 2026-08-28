@@ -1,22 +1,25 @@
-"""One-off study: screen the FULL universe of held stocks (not just the
-handful of popular ones tracked elsewhere) for the biggest movers, then
-reuse the price+variation chart shape to plot whichever end up selected.
+"""Screens the FULL universe of held stocks (not just the handful of
+popular ones tracked elsewhere) for the biggest movers.
 
   Screen 1 (today, single day): top 5 stocks by variation_rate today
   (biggest combined cross-ETF buying) and top 5 by most negative
   variation_rate today (biggest combined selling).
 
   Screen 2 (3-day streak): stocks whose variation_rate has been strictly
-  positive for each of the last 3 trading days with a defined rate
+  positive for each of the dataset's actual last 3 trading days
   ("continuous buying") or strictly negative for each ("continuous
   selling") -- exact zero breaks the streak, same as the "no signal isn't
-  a quadrant" rule used elsewhere in this project. Ranked by the TOTAL
-  3-day variation rate ((shares_end - shares_before_streak) /
-  shares_before_streak), top 3 of each direction.
+  a quadrant" rule used elsewhere in this project, and a gap on any one
+  of those 3 specific dates disqualifies the stock (no reaching further
+  back into its history). Ranked by the TOTAL 3-day variation rate
+  ((shares_end - shares_before_streak) / shares_before_streak), top 3 of
+  each direction.
 
-Up to 16 distinct stocks total (5+5+3+3, deduplicated), written in the
-same {dates, variation_rate, close} shape variation_price_study.py
-produces, so variation_price_chart_template.html renders them unchanged.
+compute_screens() is the reusable core (imported by
+generate_top_movers_report.py for the daily ntfy+chart pipeline); running
+this file directly is a standalone CLI for ad hoc checks that also writes
+top_movers_data.json in the {dates, variation_rate, close} shape
+variation_price_study.py produces, for variation_price_chart_template.html.
 """
 
 import json
@@ -94,11 +97,13 @@ def _three_day_streak(g, last3_dates):
     return direction, (end_shares - start_shares) / start_shares
 
 
-def main():
-    conn_str = os.environ["DATABASE_URL"].strip().lstrip("﻿")
-    holdings, prices, names = fetch_all(conn_str)
-    print(f"holdings rows: {len(holdings)}, price rows: {len(prices)}, distinct stocks: {holdings['stock_code'].nunique()}")
-
+def compute_screens(holdings, prices, names):
+    """Returns a dict with everything the report/CLI need:
+    latest_date, last3_dates, top_buy_today, top_sell_today,
+    top_buy_streak, top_sell_streak (all DataFrames), tags_by_code
+    (stock_code -> list[str]), and selected (deduplicated stock_code list,
+    in a stable buy-today/sell-today/buy-streak/sell-streak order).
+    """
     combined = holdings.groupby(["stock_code", "trade_date"])["shares"].sum().reset_index()
     combined = combined.sort_values(["stock_code", "trade_date"])
     combined["variation_rate"] = combined.groupby("stock_code")["shares"].pct_change()
@@ -106,7 +111,6 @@ def main():
     all_dates = sorted(combined["trade_date"].unique())
     latest_date = all_dates[-1]
     last3_dates = all_dates[-3:]
-    print(f"latest_date={pd.Timestamp(latest_date).date()}, 3-day window={[pd.Timestamp(d).date() for d in last3_dates]}")
 
     latest = combined[(combined["trade_date"] == latest_date) & combined["variation_rate"].notna()]
     top_buy_today = latest.sort_values("variation_rate", ascending=False).head(5)
@@ -123,23 +127,6 @@ def main():
 
     top_buy_streak = streak_df[streak_df["direction"] == "buy"].sort_values("total_rate", ascending=False).head(3)
     top_sell_streak = streak_df[streak_df["direction"] == "sell"].sort_values("total_rate", ascending=True).head(3)
-
-    def fmt(code, rate):
-        mark = "（出清）" if rate <= LIQUIDATION_THRESHOLD else ""
-        return f"{code} {names.get(code, '')} {rate * 100:+.2f}%{mark}"
-
-    print(f"=== latest_date={pd.Timestamp(latest_date).date()}: today's biggest buy (top 5) ===")
-    for _, r in top_buy_today.iterrows():
-        print(" ", fmt(r["stock_code"], r["variation_rate"]))
-    print("=== today's biggest sell (top 5) ===")
-    for _, r in top_sell_today.iterrows():
-        print(" ", fmt(r["stock_code"], r["variation_rate"]))
-    print("=== 3-day continuous buy, biggest total (top 3) ===")
-    for _, r in top_buy_streak.iterrows():
-        print(" ", fmt(r["stock_code"], r["total_rate"]))
-    print("=== 3-day continuous sell, biggest total (top 3) ===")
-    for _, r in top_sell_streak.iterrows():
-        print(" ", fmt(r["stock_code"], r["total_rate"]))
 
     tags_by_code = {}
 
@@ -163,6 +150,48 @@ def main():
             + list(top_sell_streak["stock_code"])
         )
     )
+
+    return {
+        "latest_date": latest_date,
+        "last3_dates": last3_dates,
+        "top_buy_today": top_buy_today,
+        "top_sell_today": top_sell_today,
+        "top_buy_streak": top_buy_streak,
+        "top_sell_streak": top_sell_streak,
+        "tags_by_code": tags_by_code,
+        "selected": selected,
+    }
+
+
+def fmt(code, rate, names):
+    mark = "（出清）" if rate <= LIQUIDATION_THRESHOLD else ""
+    return f"{code} {names.get(code, '')} {rate * 100:+.2f}%{mark}"
+
+
+def main():
+    conn_str = os.environ["DATABASE_URL"].strip().lstrip("﻿")
+    holdings, prices, names = fetch_all(conn_str)
+    print(f"holdings rows: {len(holdings)}, price rows: {len(prices)}, distinct stocks: {holdings['stock_code'].nunique()}")
+
+    screens = compute_screens(holdings, prices, names)
+    print(f"latest_date={pd.Timestamp(screens['latest_date']).date()}, "
+          f"3-day window={[pd.Timestamp(d).date() for d in screens['last3_dates']]}")
+
+    print("=== today's biggest buy (top 5) ===")
+    for _, r in screens["top_buy_today"].iterrows():
+        print(" ", fmt(r["stock_code"], r["variation_rate"], names))
+    print("=== today's biggest sell (top 5) ===")
+    for _, r in screens["top_sell_today"].iterrows():
+        print(" ", fmt(r["stock_code"], r["variation_rate"], names))
+    print("=== 3-day continuous buy, biggest total (top 3) ===")
+    for _, r in screens["top_buy_streak"].iterrows():
+        print(" ", fmt(r["stock_code"], r["total_rate"], names))
+    print("=== 3-day continuous sell, biggest total (top 3) ===")
+    for _, r in screens["top_sell_streak"].iterrows():
+        print(" ", fmt(r["stock_code"], r["total_rate"], names))
+
+    selected = screens["selected"]
+    tags_by_code = screens["tags_by_code"]
     print(f"selected {len(selected)} distinct stocks: {selected}")
 
     result = {"stocks": []}
