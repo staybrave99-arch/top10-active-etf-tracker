@@ -170,7 +170,7 @@ function el(tag, attrs) {
 function render() {
   const totalDays = DATA.stocks[0] ? DATA.stocks[0].dates.length : 0;
   document.getElementById('subtitle').textContent =
-    `共 ${totalDays} 個交易日 ・ 變動率 = 當天跨ETF合計持股股數變化 / 前一日合計股數 ・ 上圖股價、下圖變動率，各自獨立Y軸，共用日期軸`;
+    `共 ${totalDays} 個交易日 ・ 變動率 = 當天跨ETF合計持股股數變化 / 前一日合計股數 ・ 上圖股價、下圖變動率（Y軸為對數座標），各自獨立Y軸，共用日期軸`;
 
   const tooltip = document.getElementById('tooltip');
   function showTooltip(evt, date, rows) {
@@ -247,14 +247,24 @@ function render() {
       });
     }
 
-    // --- variation-rate sub-chart (diverging bars around zero) ---
+    // --- variation-rate sub-chart (diverging bars around zero, signed-log
+    // y-axis -- daily variation rates commonly span from a fraction of a
+    // percent to several thousand percent in one bar's neighbors (a tiny
+    // prior share base inflates the %% change), so a linear axis would
+    // crush every ordinary day into invisibility next to one spike. ---
     const varSvg = el('svg', { viewBox: `0 0 ${W} ${VH}`, role: 'img', 'aria-label': `${stock.stock_code} ${stock.stock_name} 跨ETF變動率` });
     const vAbs = stock.variation_rate.filter(v => v !== null).map(Math.abs);
     const vMax = Math.max(...vAbs, 0.01) * 1.15;
-    const varYScale = v => VM.top + (vMax - v) / (2 * vMax) * vPlotH;
+    const vLogT = v => Math.sign(v) * Math.log10(Math.abs(v) + 1);
+    const vMaxLog = vLogT(vMax);
+    const varYScale = v => VM.top + (vLogT(v) + vMaxLog) / (2 * vMaxLog) * vPlotH;
     const zeroY = varYScale(0);
 
     varSvg.appendChild(el('line', { class: 'zero-line', x1: VM.left, y1: zeroY, x2: W - VM.right, y2: zeroY }));
+    [-0.5, 0.5].forEach(f => {
+      const gy = varYScale(Math.sign(f) * (Math.pow(10, Math.abs(f * vMaxLog)) - 1));
+      varSvg.appendChild(el('line', { class: 'grid-line', x1: VM.left, y1: gy, x2: W - VM.right, y2: gy }));
+    });
     [vMax, -vMax].forEach(v => {
       const t = el('text', { class: 'tick-label', x: VM.left - 6, y: varYScale(v) + 3, 'text-anchor': 'end' });
       t.textContent = (v * 100).toFixed(1) + '%';
