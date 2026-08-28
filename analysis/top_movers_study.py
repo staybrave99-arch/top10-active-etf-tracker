@@ -27,6 +27,8 @@ import psycopg2
 
 from correlation_study import build_series
 
+LIQUIDATION_THRESHOLD = -0.95  # sell variation rate more extreme than this -> "出清"
+
 
 def fetch_all(conn_str):
     conn = psycopg2.connect(conn_str)
@@ -123,7 +125,8 @@ def main():
     top_sell_streak = streak_df[streak_df["direction"] == "sell"].sort_values("total_rate", ascending=True).head(3)
 
     def fmt(code, rate):
-        return f"{code} {names.get(code, '')} {rate * 100:+.2f}%"
+        mark = "（出清）" if rate <= LIQUIDATION_THRESHOLD else ""
+        return f"{code} {names.get(code, '')} {rate * 100:+.2f}%{mark}"
 
     print(f"=== latest_date={pd.Timestamp(latest_date).date()}: today's biggest buy (top 5) ===")
     for _, r in top_buy_today.iterrows():
@@ -140,14 +143,17 @@ def main():
 
     tags_by_code = {}
 
-    def add_tags(ranked_df, label):
+    def add_tags(ranked_df, label, rate_col):
         for rank, (_, r) in enumerate(ranked_df.iterrows(), start=1):
-            tags_by_code.setdefault(r["stock_code"], []).append(f"{label}第{rank}名")
+            tags = tags_by_code.setdefault(r["stock_code"], [])
+            tags.append(f"{label}第{rank}名")
+            if r[rate_col] <= LIQUIDATION_THRESHOLD:
+                tags.append("出清")
 
-    add_tags(top_buy_today, "買超")
-    add_tags(top_sell_today, "賣超")
-    add_tags(top_buy_streak, "連續買超")
-    add_tags(top_sell_streak, "連續賣超")
+    add_tags(top_buy_today, "買超", "variation_rate")
+    add_tags(top_sell_today, "賣超", "variation_rate")
+    add_tags(top_buy_streak, "連續買超", "total_rate")
+    add_tags(top_sell_streak, "連續賣超", "total_rate")
 
     selected = list(
         dict.fromkeys(

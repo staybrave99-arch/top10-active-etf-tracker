@@ -101,6 +101,10 @@
     padding: 2px 8px;
     white-space: nowrap;
   }
+  .tag.critical {
+    color: #ffffff;
+    background: #d03b3b;
+  }
   .panel-subtitle { font-size: 10px; fill: var(--text-muted); }
 
   svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -318,7 +322,7 @@ function render() {
     titleRow.appendChild(title);
     (stock.tags || []).forEach(tag => {
       const badge = document.createElement('span');
-      badge.className = 'tag';
+      badge.className = tag === '出清' ? 'tag critical' : 'tag';
       badge.textContent = tag;
       titleRow.appendChild(badge);
     });
