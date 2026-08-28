@@ -15,6 +15,7 @@
     --blue:           #2a78d6;
     --blue-soft:      #2a78d614;
     --green:          #008300;
+    --green-soft:     #00830022;
     --violet:         #4a3aa7;
     --price-line:     #52514e;
   }
@@ -34,6 +35,7 @@
       --blue:           #3987e5;
       --blue-soft:      #3987e522;
       --green:          #008300;
+    --green-soft:     #00830022;
       --violet:         #9085e9;
       --price-line:     #c3c2b7;
     }
@@ -53,6 +55,7 @@
     --blue:           #3987e5;
     --blue-soft:      #3987e522;
     --green:          #008300;
+    --green-soft:     #00830022;
     --violet:         #9085e9;
     --price-line:     #c3c2b7;
   }
@@ -109,6 +112,8 @@
   }
   .tag.buy-streak { color: #ffffff; background: var(--green); }
   .tag.sell-streak { color: #ffffff; background: var(--red); }
+  .tag.buy-today { color: var(--green); background: var(--green-soft); }
+  .tag.sell-today { color: var(--red); background: var(--red-soft); }
   .tag.liquidated { color: #ffffff; background: var(--violet); }
   .panel-subtitle { font-size: 10px; fill: var(--text-muted); }
 
@@ -329,6 +334,8 @@ function render() {
       if (tag === '出清') return 'tag liquidated';
       if (tag.startsWith('連續買超')) return 'tag buy-streak';
       if (tag.startsWith('連續賣超')) return 'tag sell-streak';
+      if (tag.startsWith('買超')) return 'tag buy-today';
+      if (tag.startsWith('賣超')) return 'tag sell-today';
       return 'tag';
     };
     (stock.tags || []).forEach(tag => {
