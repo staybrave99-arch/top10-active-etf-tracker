@@ -54,7 +54,7 @@ def _build_message(screens, names, date_str):
 def _write_ntfy_payload(message: str):
     payload = {
         "topic": NTFY_TOPIC,
-        "title": "每日買賣最大變動率已更新",
+        "title": "主動式ETF每日買賣最大變動率",
         "message": message,
         "actions": [{"action": "view", "label": "查看圖表", "url": PAGE_URL}],
     }
