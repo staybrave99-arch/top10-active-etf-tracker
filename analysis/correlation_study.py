@@ -33,7 +33,7 @@ ROLLING_MIN_PERIODS = 5
 # How many recent trading days a price/variation-rate CHART plots (not the
 # correlation study itself, which wants the full history). Keeps each
 # bar/point wide enough to tap on a phone -- see build_series(window=...).
-CHART_WINDOW_DAYS = 20
+CHART_WINDOW_DAYS = 48
 
 DEFAULT_STOCKS = {
     "2330": "台積電",
