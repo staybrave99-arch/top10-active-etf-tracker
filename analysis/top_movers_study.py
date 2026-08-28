@@ -15,6 +15,12 @@ popular ones tracked elsewhere) for the biggest movers.
   ((shares_end - shares_before_streak) / shares_before_streak), top 3 of
   each direction.
 
+Both screens additionally require |rate| > MOVEMENT_THRESHOLD (10%) to
+be listed at all -- a stock that's merely the "least small" move of the
+day doesn't belong on a "biggest movers" list, so a screen can come back
+with fewer than 5/3 entries (or none) rather than padding out with
+sub-10% noise.
+
 compute_screens() is the reusable core (imported by
 generate_top_movers_report.py for the daily ntfy+chart pipeline); running
 this file directly is a standalone CLI for ad hoc checks that also writes
@@ -31,6 +37,7 @@ import psycopg2
 from correlation_study import build_series
 
 LIQUIDATION_THRESHOLD = -0.95  # sell variation rate more extreme than this -> "出清"
+MOVEMENT_THRESHOLD = 0.10  # |rate| must exceed this to be listed in any screen at all
 
 
 def fetch_all(conn_str):
@@ -113,8 +120,10 @@ def compute_screens(holdings, prices, names):
     last3_dates = all_dates[-3:]
 
     latest = combined[(combined["trade_date"] == latest_date) & combined["variation_rate"].notna()]
-    top_buy_today = latest.sort_values("variation_rate", ascending=False).head(5)
-    top_sell_today = latest.sort_values("variation_rate", ascending=True).head(5)
+    buy_candidates_today = latest[latest["variation_rate"] > MOVEMENT_THRESHOLD]
+    sell_candidates_today = latest[latest["variation_rate"] < -MOVEMENT_THRESHOLD]
+    top_buy_today = buy_candidates_today.sort_values("variation_rate", ascending=False).head(5)
+    top_sell_today = sell_candidates_today.sort_values("variation_rate", ascending=True).head(5)
 
     streak_rows = []
     for code, g in combined.groupby("stock_code"):
@@ -125,8 +134,10 @@ def compute_screens(holdings, prices, names):
         streak_rows.append({"stock_code": code, "direction": direction, "total_rate": total_rate})
     streak_df = pd.DataFrame(streak_rows, columns=["stock_code", "direction", "total_rate"])
 
-    top_buy_streak = streak_df[streak_df["direction"] == "buy"].sort_values("total_rate", ascending=False).head(3)
-    top_sell_streak = streak_df[streak_df["direction"] == "sell"].sort_values("total_rate", ascending=True).head(3)
+    buy_streak_candidates = streak_df[(streak_df["direction"] == "buy") & (streak_df["total_rate"] > MOVEMENT_THRESHOLD)]
+    sell_streak_candidates = streak_df[(streak_df["direction"] == "sell") & (streak_df["total_rate"] < -MOVEMENT_THRESHOLD)]
+    top_buy_streak = buy_streak_candidates.sort_values("total_rate", ascending=False).head(3)
+    top_sell_streak = sell_streak_candidates.sort_values("total_rate", ascending=True).head(3)
 
     tags_by_code = {}
 
