@@ -34,7 +34,7 @@ import os
 import pandas as pd
 import psycopg2
 
-from correlation_study import build_series
+from correlation_study import CHART_WINDOW_DAYS, build_series
 
 LIQUIDATION_THRESHOLD = -0.95  # sell variation rate more extreme than this -> "出清"
 MOVEMENT_THRESHOLD = 0.10  # |rate| must exceed this to be listed in any screen at all
@@ -207,7 +207,7 @@ def main():
 
     result = {"stocks": []}
     for code in selected:
-        df = build_series(holdings, prices, code)
+        df = build_series(holdings, prices, code, window=CHART_WINDOW_DAYS)
 
         def col(name_, digits):
             return [None if pd.isna(v) else round(float(v), digits) for v in df[name_]]

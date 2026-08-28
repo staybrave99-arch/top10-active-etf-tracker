@@ -30,6 +30,11 @@ import psycopg2
 ROLLING_WINDOW = 10
 ROLLING_MIN_PERIODS = 5
 
+# How many recent trading days a price/variation-rate CHART plots (not the
+# correlation study itself, which wants the full history). Keeps each
+# bar/point wide enough to tap on a phone -- see build_series(window=...).
+CHART_WINDOW_DAYS = 20
+
 DEFAULT_STOCKS = {
     "2330": "台積電",
     "2454": "聯發科",
@@ -71,7 +76,12 @@ def fetch(conn_str, stock_codes):
     return holdings, prices
 
 
-def build_series(holdings, prices, code):
+def build_series(holdings, prices, code, window=None):
+    """window: if given, keep only the most recent `window` rows -- rolling
+    correlation callers need the full history and leave this at None; chart
+    callers pass a window so a stock with months of accumulated history
+    doesn't get plotted as dozens of hairline-thin, near-untappable bars.
+    """
     h = holdings[holdings["stock_code"] == code]
     combined = h.groupby("trade_date")["shares"].sum().sort_index()
     variation_rate = combined.pct_change()
@@ -83,6 +93,8 @@ def build_series(holdings, prices, code):
         subset=["variation_rate", "price_return"], how="all"
     )
     df["price_return_lead1"] = df["price_return"].shift(-1)
+    if window is not None:
+        df = df.tail(window)
     return df
 
 

@@ -10,7 +10,7 @@ import os
 
 import pandas as pd
 
-from correlation_study import build_series
+from correlation_study import CHART_WINDOW_DAYS, build_series
 from top_movers_study import LIQUIDATION_THRESHOLD, compute_screens, fetch_all, fmt
 
 OUT_PATH = os.path.join(os.path.dirname(__file__), "..", "docs", "top_movers.html")
@@ -81,7 +81,7 @@ def main():
 
         data = {"stocks": []}
         for code in selected:
-            df = build_series(holdings, prices, code)
+            df = build_series(holdings, prices, code, window=CHART_WINDOW_DAYS)
 
             def col(name_, digits):
                 return [None if pd.isna(v) else round(float(v), digits) for v in df[name_]]
