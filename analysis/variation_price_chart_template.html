@@ -125,7 +125,9 @@
   .bar-up { fill: var(--red); }
   .bar-down { fill: var(--blue); }
   .end-dot { stroke: var(--surface-1); stroke-width: 2; }
-  .hit { fill: transparent; cursor: pointer; }
+  .hit { fill: transparent; cursor: pointer; touch-action: pan-y; }
+  .crosshair { stroke: var(--axis); stroke-width: 1; opacity: 0; pointer-events: none; }
+  .crosshair.show { opacity: 1; }
 
   .tooltip {
     position: fixed;
@@ -266,18 +268,6 @@ function render() {
       priceSvg.appendChild(el('path', { class: 'line-price', d: pd }));
       const lastP = pricePts[pricePts.length - 1];
       priceSvg.appendChild(el('circle', { class: 'end-dot', cx: xAt(lastP.i, pPlotW, PM.left), cy: priceYScale(lastP.v), r: 3.5, fill: 'var(--price-line)' }));
-
-      dates.forEach((date, i) => {
-        if (stock.close[i] === null) return;
-        const hitW = pPlotW / Math.max(dates.length - 1, 1);
-        const hit = el('rect', { class: 'hit', x: xAt(i, pPlotW, PM.left) - hitW / 2, y: 0, width: hitW, height: PH });
-        const rows = [['收盤價', stock.close[i], 2]];
-        hit.addEventListener('pointerenter', evt => showTooltip(evt, date, rows));
-        hit.addEventListener('pointermove', moveTooltip);
-        hit.addEventListener('pointerleave', hideTooltip);
-        hit.addEventListener('click', evt => { evt.stopPropagation(); showTooltip(evt, date, rows); });
-        priceSvg.appendChild(hit);
-      });
     }
 
     // --- variation-rate sub-chart (diverging bars around zero, signed-log
@@ -322,16 +312,74 @@ function render() {
       const h = Math.abs(varYScale(v) - zeroY);
       varSvg.appendChild(el('rect', { class: v > 0 ? 'bar-up' : 'bar-down', x: x - barW / 2, y, width: barW, height: h }));
     });
-    dates.forEach((date, i) => {
-      const hitW = vPlotW / Math.max(dates.length - 1, 1);
-      const hit = el('rect', { class: 'hit', x: xAt(i, vPlotW, VM.left) - hitW / 2, y: VM.top, width: hitW, height: vPlotH });
-      const rows = [['變動率', stock.variation_rate[i] === null ? null : stock.variation_rate[i] * 100, 2, '%']];
-      hit.addEventListener('pointerenter', evt => showTooltip(evt, date, rows));
-      hit.addEventListener('pointermove', moveTooltip);
-      hit.addEventListener('pointerleave', hideTooltip);
-      hit.addEventListener('click', evt => { evt.stopPropagation(); showTooltip(evt, date, rows); });
-      varSvg.appendChild(hit);
-    });
+    // --- shared crosshair, spanning both sub-charts ---
+    // A single continuous scrub interaction (not per-date discrete hit
+    // targets) drives one crosshair line in each SVG. pointermove alone
+    // covers both input types: for a mouse it fires on hover (no button
+    // needed), for touch it only fires while a finger is down -- which is
+    // exactly "drag to scrub". pointerdown additionally fires it once
+    // immediately, so a plain tap-without-moving still shows a value.
+    const priceCrosshair = el('line', { class: 'crosshair', x1: 0, x2: 0, y1: 0, y2: PH });
+    const varCrosshair = el('line', { class: 'crosshair', x1: 0, x2: 0, y1: 0, y2: VH });
+    priceSvg.appendChild(priceCrosshair);
+    varSvg.appendChild(varCrosshair);
+
+    function updateCrosshair(idx, evt) {
+      idx = Math.max(0, Math.min(dates.length - 1, idx));
+      const date = dates[idx];
+      const xP = xAt(idx, pPlotW, PM.left);
+      const xV = xAt(idx, vPlotW, VM.left);
+      priceCrosshair.setAttribute('x1', xP); priceCrosshair.setAttribute('x2', xP);
+      varCrosshair.setAttribute('x1', xV); varCrosshair.setAttribute('x2', xV);
+      priceCrosshair.classList.add('show');
+      varCrosshair.classList.add('show');
+      const v = stock.variation_rate[idx];
+      const rows = [
+        ['收盤價', stock.close[idx], 2],
+        ['變動率', v === null ? null : v * 100, 2, '%'],
+      ];
+      showTooltip(evt, date, rows);
+    }
+    function hideCrosshair() {
+      priceCrosshair.classList.remove('show');
+      varCrosshair.classList.remove('show');
+      hideTooltip();
+    }
+    // Pointer capture (set on down) keeps subsequent pointermove events
+    // routed to the SAME overlay even if the finger drifts vertically into
+    // the other sub-chart -- only clientX is used, so that's harmless and
+    // lets one continuous drag scrub across both stacked charts.
+    function attachScrub(overlay, svgEl, plotW, left) {
+      function indexFromEvent(evt) {
+        const rect = svgEl.getBoundingClientRect();
+        const scaleX = rect.width / W;
+        const localX = (evt.clientX - rect.left) / scaleX;
+        const frac = dates.length <= 1 ? 0 : Math.max(0, Math.min(1, (localX - left) / plotW));
+        return Math.round(frac * (dates.length - 1));
+      }
+      overlay.addEventListener('pointerdown', evt => {
+        evt.stopPropagation();
+        overlay.setPointerCapture(evt.pointerId);
+        updateCrosshair(indexFromEvent(evt), evt);
+      });
+      overlay.addEventListener('pointermove', evt => updateCrosshair(indexFromEvent(evt), evt));
+      overlay.addEventListener('pointerleave', evt => {
+        // Touch has no true hover state -- lifting a finger fires
+        // pointerleave right after pointerup, so only a mouse actually
+        // leaving the chart should dismiss; a touch crosshair stays
+        // pinned until the user taps elsewhere (document click handler).
+        if (evt.pointerType === 'mouse') hideCrosshair();
+      });
+      overlay.addEventListener('click', evt => evt.stopPropagation());
+    }
+
+    const priceOverlay = el('rect', { class: 'hit', x: PM.left, y: 0, width: pPlotW, height: PH });
+    priceSvg.appendChild(priceOverlay);
+    attachScrub(priceOverlay, priceSvg, pPlotW, PM.left);
+
+    const varOverlay = el('rect', { class: 'hit', x: VM.left, y: VM.top, width: vPlotW, height: vPlotH });
+    varSvg.appendChild(varOverlay);
+    attachScrub(varOverlay, varSvg, vPlotW, VM.left);
 
     const panel = document.createElement('div');
     panel.className = 'panel';
