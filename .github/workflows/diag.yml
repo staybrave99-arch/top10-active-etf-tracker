@@ -33,12 +33,12 @@ jobs:
             sleep 1
           done
 
-      - name: Run variation/price study
+      - name: Run correlation study
         env:
           DATABASE_URL_RAW: ${{ secrets.DATABASE_URL }}
         run: |
           export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
-          python analysis/variation_price_study.py
+          python analysis/correlation_study.py
 
       - name: Stop DB proxy
         if: always()
@@ -47,5 +47,5 @@ jobs:
       - name: Upload result JSON
         uses: actions/upload-artifact@v4
         with:
-          name: variation-price-data
-          path: analysis/variation_price_data.json
+          name: correlation-data
+          path: analysis/correlation_data.json
