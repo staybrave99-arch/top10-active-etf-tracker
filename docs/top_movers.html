@@ -224,6 +224,13 @@ function render() {
   }
   function hideTooltip() { tooltip.classList.remove('show'); }
 
+  // Tapping anywhere outside a bar/point dismisses a tap-opened tooltip;
+  // the per-hit click handlers stop propagation so tapping a bar doesn't
+  // immediately re-trigger this and hide the one it just opened. render()
+  // only runs once in this template, so this listener is added exactly
+  // once, not re-stacked.
+  document.addEventListener('click', hideTooltip);
+
   const chartWrap = document.getElementById('chartWrap');
   chartWrap.innerHTML = '';
 
@@ -264,9 +271,11 @@ function render() {
         if (stock.close[i] === null) return;
         const hitW = pPlotW / Math.max(dates.length - 1, 1);
         const hit = el('rect', { class: 'hit', x: xAt(i, pPlotW, PM.left) - hitW / 2, y: 0, width: hitW, height: PH });
-        hit.addEventListener('pointerenter', evt => showTooltip(evt, date, [['收盤價', stock.close[i], 2]]));
+        const rows = [['收盤價', stock.close[i], 2]];
+        hit.addEventListener('pointerenter', evt => showTooltip(evt, date, rows));
         hit.addEventListener('pointermove', moveTooltip);
         hit.addEventListener('pointerleave', hideTooltip);
+        hit.addEventListener('click', evt => { evt.stopPropagation(); showTooltip(evt, date, rows); });
         priceSvg.appendChild(hit);
       });
     }
@@ -316,9 +325,11 @@ function render() {
     dates.forEach((date, i) => {
       const hitW = vPlotW / Math.max(dates.length - 1, 1);
       const hit = el('rect', { class: 'hit', x: xAt(i, vPlotW, VM.left) - hitW / 2, y: VM.top, width: hitW, height: vPlotH });
-      hit.addEventListener('pointerenter', evt => showTooltip(evt, date, [['變動率', stock.variation_rate[i] === null ? null : stock.variation_rate[i] * 100, 2, '%']]));
+      const rows = [['變動率', stock.variation_rate[i] === null ? null : stock.variation_rate[i] * 100, 2, '%']];
+      hit.addEventListener('pointerenter', evt => showTooltip(evt, date, rows));
       hit.addEventListener('pointermove', moveTooltip);
       hit.addEventListener('pointerleave', hideTooltip);
+      hit.addEventListener('click', evt => { evt.stopPropagation(); showTooltip(evt, date, rows); });
       varSvg.appendChild(hit);
     });
 
