@@ -14,6 +14,8 @@
     --red-soft:       #e3494814;
     --blue:           #2a78d6;
     --blue-soft:      #2a78d614;
+    --green:          #008300;
+    --violet:         #4a3aa7;
     --price-line:     #52514e;
   }
   @media (prefers-color-scheme: dark) {
@@ -31,6 +33,8 @@
       --red-soft:       #e6676722;
       --blue:           #3987e5;
       --blue-soft:      #3987e522;
+      --green:          #008300;
+      --violet:         #9085e9;
       --price-line:     #c3c2b7;
     }
   }
@@ -48,6 +52,8 @@
     --red-soft:       #e6676722;
     --blue:           #3987e5;
     --blue-soft:      #3987e522;
+    --green:          #008300;
+    --violet:         #9085e9;
     --price-line:     #c3c2b7;
   }
 
@@ -101,10 +107,9 @@
     padding: 2px 8px;
     white-space: nowrap;
   }
-  .tag.critical {
-    color: #ffffff;
-    background: #d03b3b;
-  }
+  .tag.buy-streak { color: #ffffff; background: var(--green); }
+  .tag.sell-streak { color: #ffffff; background: var(--red); }
+  .tag.liquidated { color: #ffffff; background: var(--violet); }
   .panel-subtitle { font-size: 10px; fill: var(--text-muted); }
 
   svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -320,9 +325,15 @@ function render() {
     title.className = 'panel-title';
     title.textContent = `${stock.stock_code} ${stock.stock_name}`;
     titleRow.appendChild(title);
+    const tagClass = tag => {
+      if (tag === '出清') return 'tag liquidated';
+      if (tag.startsWith('連續買超')) return 'tag buy-streak';
+      if (tag.startsWith('連續賣超')) return 'tag sell-streak';
+      return 'tag';
+    };
     (stock.tags || []).forEach(tag => {
       const badge = document.createElement('span');
-      badge.className = tag === '出清' ? 'tag critical' : 'tag';
+      badge.className = tagClass(tag);
       badge.textContent = tag;
       titleRow.appendChild(badge);
     });
