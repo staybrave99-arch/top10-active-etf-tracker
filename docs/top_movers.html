@@ -1,0 +1,386 @@
+<title>全市場買賣最大股票：變動率與股價走勢</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --red:            #e34948;
+    --red-soft:       #e3494814;
+    --blue:           #2a78d6;
+    --blue-soft:      #2a78d614;
+    --green:          #008300;
+    --violet:         #4a3aa7;
+    --price-line:     #52514e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --red:            #e66767;
+      --red-soft:       #e6676722;
+      --blue:           #3987e5;
+      --blue-soft:      #3987e522;
+      --green:          #008300;
+      --violet:         #9085e9;
+      --price-line:     #c3c2b7;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --red:            #e66767;
+    --red-soft:       #e6676722;
+    --blue:           #3987e5;
+    --blue-soft:      #3987e522;
+    --green:          #008300;
+    --violet:         #9085e9;
+    --price-line:     #c3c2b7;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--text-primary);
+  }
+  .viz-root { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; line-height: 1.5; }
+
+  .legend { display: flex; gap: 16px; align-items: center; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; margin-bottom: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+  .swatch.price { width: 16px; height: 2px; border-radius: 1px; background: var(--price-line); }
+  .swatch.up { background: var(--red); }
+  .swatch.down { background: var(--blue); }
+
+  button.toggle {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    margin-bottom: 16px;
+  }
+  button.toggle:hover { color: var(--text-primary); border-color: var(--axis); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 14px 8px;
+  }
+  .panel-title-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .panel-title { font-size: 13px; font-weight: 600; margin: 0; }
+  .tag {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--grid);
+    border-radius: 999px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+  .tag.buy-streak { color: #ffffff; background: var(--green); }
+  .tag.sell-streak { color: #ffffff; background: var(--red); }
+  .tag.liquidated { color: #ffffff; background: var(--violet); }
+  .panel-subtitle { font-size: 10px; fill: var(--text-muted); }
+
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .zero-line { stroke: var(--axis); stroke-width: 1; }
+  .tick-label { font-size: 10px; fill: var(--text-muted); }
+  .line-price { fill: none; stroke: var(--price-line); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .bar-up { fill: var(--red); }
+  .bar-down { fill: var(--blue); }
+  .end-dot { stroke: var(--surface-1); stroke-width: 2; }
+  .hit { fill: transparent; cursor: pointer; }
+
+  .tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 10;
+    min-width: 150px;
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip .t-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+  .tooltip .t-row { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
+  .tooltip .t-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+  table.data-table th, table.data-table td {
+    text-align: right;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  table.data-table th:first-child, table.data-table td:first-child,
+  table.data-table th:nth-child(2), table.data-table td:nth-child(2) {
+    text-align: left;
+    font-variant-numeric: normal;
+  }
+  table.data-table th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  .hidden { display: none; }
+</style>
+
+<div class="viz-root">
+  <h1>個股變動率與股價走勢</h1>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="legend">
+    <span class="legend-item"><span class="swatch price"></span>收盤價</span>
+    <span class="legend-item"><span class="swatch up"></span>變動率 &gt; 0（跨ETF合計加碼）</span>
+    <span class="legend-item"><span class="swatch down"></span>變動率 &lt; 0（跨ETF合計減碼）</span>
+  </div>
+
+  <button class="toggle" id="tableToggle">切換表格檢視</button>
+
+  <div id="chartWrap" class="grid"></div>
+  <div id="tableWrap" class="hidden"></div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const DATA = {"stocks": [{"stock_code": "5425", "stock_name": "台半", "tags": ["買超第1名", "連續買超第1名"], "dates": ["2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, 1.0, 0.2081, 0.0, 0.0, 0.0123, 0.4389, 1.5896], "close": [91.8, 90.3, 88.2, 86.1, 87.9, 96.6, null, 95.2]}, {"stock_code": "3491", "stock_name": "昇達科", "tags": ["買超第2名"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.0, 0.0, null, -0.001, 0.0, 0.0, 0.0, null, 0.0, 0.0, 0.0, 0.001, 0.0, 0.0, 0.0121, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1788], "close": [1570.0, 1550.0, 1560.0, 1470.0, 1355.0, 1430.0, 1340.0, 1230.0, 1310.0, 1335.0, 1260.0, 1265.0, 1340.0, 1300.0, 1195.0, 1270.0, 1270.0, 1260.0, 1195.0, 1310.0, 1355.0, 1220.0, 1185.0, 1300.0, 1300.0, 1190.0, null, 1155.0, 1025.0, 923.0, null, 969.0, null, 1065.0, 1170.0, 1285.0, 1235.0, 1235.0, 1275.0, 1320.0, 1345.0, 1375.0, 1330.0, 1250.0, 1225.0, 1285.0, 1280.0, 1290.0, 1270.0, 1345.0, null, 1425.0]}, {"stock_code": "5289", "stock_name": "宜鼎", "tags": ["買超第3名"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.0, 0.0, null, 0.0, 0.0, 0.0, 0.0, null, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0199], "close": [1955.0, 1855.0, 1930.0, 1970.0, 1885.0, 1795.0, 1740.0, 1605.0, 1595.0, 1615.0, 1575.0, 1715.0, 1635.0, 1645.0, 1590.0, 1515.0, 1530.0, 1515.0, 1445.0, 1470.0, 1395.0, 1275.0, 1215.0, 1300.0, 1360.0, 1370.0, 1370.0, null, 1330.0, 1160.0, 1180.0, null, 1295.0, null, 1385.0, 1415.0, 1465.0, 1500.0, 1465.0, 1470.0, 1520.0, 1535.0, 1475.0, 1530.0, 1460.0, 1515.0, 1490.0, 1560.0, 1570.0, 1510.0, 1500.0, null, 1490.0]}, {"stock_code": "1519", "stock_name": "華城電機", "tags": ["買超第4名"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, -0.4, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.0, 0.0, null, 0.0, 0.0, 0.0, 0.1, null, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "close": [781.0, 803.0, 833.0, 831.0, 813.0, 819.0, 808.0, 780.0, 783.0, 776.0, 757.0, 770.0, 773.0, 773.0, 748.0, 740.0, 721.0, 727.0, 692.0, 709.0, 691.0, 655.0, 668.0, 692.0, 705.0, 705.0, 697.0, null, 727.0, 668.0, 663.0, null, 705.0, null, 703.0, 713.0, 663.0, 653.0, 671.0, 703.0, 720.0, 720.0, 710.0, 720.0, 714.0, 718.0, 727.0, 723.0, 712.0, 717.0, 717.0, null, 770.0]}, {"stock_code": "2486", "stock_name": "一詮", "tags": ["買超第5名"], "dates": ["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, 0.0, 0.6916, 0.0, 0.0], "close": [249.0, 258.0, 262.5, null, 259.0]}, {"stock_code": "2881", "stock_name": "富邦金", "tags": ["賣超第1名", "出清"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, -0.0106, 0.0, 0.0, 0.0, 0.0, 0.0, -0.0003, 0.0003, 0.0, null, 0.0, 1.0792, 0.0, -0.9999, 6795.0, 0.0001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8268, -0.9999], "close": [132.0, 135.5, 138.0, 138.5, 137.5, 134.5, 136.0, 134.0, 128.5, 129.5, 122.5, 119.5, 121.0, 121.5, 123.0, 126.0, 124.5, 127.0, 125.0, 128.5, 125.0, 124.5, 123.5, 123.5, 127.0, 128.5, 127.5, null, 130.0, 123.0, 124.0, null, 130.0, null, 129.5, 128.5, 129.5, 127.0, 128.5, 128.0, 127.0, 128.5, 129.5, 125.5, 129.5, 128.5, 128.0, 134.0, 132.0, 141.5, 138.5, null, 141.5]}, {"stock_code": "8358", "stock_name": "金居", "tags": ["賣超第2名", "出清"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0.0006, 0.0, 0.0, 0.0, 0.0, 0.0, -0.0839, -0.1813, 0.0, null, 0.0, 0.0, 0.0, -0.9992, 1312.0, 0.0008, 0.0, -0.3135, 0.0, 0.0, -0.1109, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9988], "close": [632.0, 640.0, 700.0, 691.0, 657.0, 638.0, 630.0, 570.0, 546.0, 600.0, 587.0, 570.0, 590.0, 563.0, 523.0, 523.0, 533.0, 498.0, 460.0, 462.5, 439.0, 398.5, 371.0, 394.5, 412.5, 406.5, 367.0, null, 371.0, 301.0, 271.0, null, 298.0, null, 327.5, 341.0, 349.5, 352.0, 346.0, 380.5, 418.5, 421.0, 428.5, 419.5, 416.0, 410.5, 413.5, 436.0, 417.0, 429.0, 449.5, null, 494.0]}, {"stock_code": "3653", "stock_name": "健策", "tags": ["賣超第3名", "出清"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0.0211, -0.0144, 0.0164, -0.0003, 0.0, 0.0302, 0.0258, 0.0086, 0.0223, null, 0.0104, 0.0285, 0.0175, null, 0.0172, -0.0369, -0.0193, 0.0, 0.0, 0.0, 0.0, 0.0613, 0.0224, 0.0, 0.0, 0.0028, 0.0, 0.0016, 0.0, -0.9923], "close": [3785.0, 3990.0, 3965.0, 3840.0, 3840.0, 3640.0, 3390.0, 3405.0, 3320.0, 3430.0, 3400.0, 3475.0, 3420.0, 3320.0, 3195.0, 3200.0, 3205.0, 3195.0, 3070.0, 3280.0, 3395.0, 3210.0, 3200.0, 3520.0, 3500.0, 3710.0, 3430.0, null, 3525.0, 3310.0, 3135.0, null, 3445.0, null, 3770.0, 4145.0, 4340.0, 4380.0, 4135.0, 4065.0, 4470.0, 4635.0, 4855.0, 5340.0, 5150.0, 5460.0, 5600.0, 5395.0, 5155.0, 5205.0, 5725.0, null, 5645.0]}, {"stock_code": "8046", "stock_name": "南電", "tags": ["賣超第4名", "出清"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, -0.1848, 0.0002, -0.0013, 0.0, 0.0, 0.0, -0.0001, 0.0001, 0.0, null, 0.0, 0.0, 0.0, -0.9999, 12770.0, 0.0001, 0.0, 0.0125, 0.0305, 0.0, 0.0338, 0.0, -0.0007, 0.0, 0.0, 0.0, 0.0, -0.0189, 0.0, -0.9777], "close": [902.0, 885.0, 874.0, 864.0, 909.0, 955.0, 1045.0, 1125.0, 1080.0, 1185.0, 1175.0, 1145.0, 1185.0, 1075.0, 1030.0, 1105.0, 1215.0, 1270.0, 1290.0, 1415.0, 1275.0, 1150.0, 1105.0, 1190.0, 1305.0, 1230.0, 1110.0, null, 1075.0, 879.0, 837.0, null, 920.0, null, 953.0, 1045.0, 1060.0, 1080.0, 1130.0, 1150.0, 1265.0, 1215.0, 1305.0, 1295.0, 1245.0, 1180.0, 1195.0, 1135.0, 1135.0, 1160.0, 1180.0, null, 1295.0]}, {"stock_code": "2303", "stock_name": "聯電", "tags": ["賣超第5名", "出清"], "dates": ["2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"], "variation_rate": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0.0062, 0.0056, 0.0, 0.0, 0.0, 0.0001, -0.0998, 0.1071, -0.0389, null, 0.0104, 0.0, 0.006, -0.9482, 17.317, 0.0546, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.0523, -0.06, -0.0244, 0.0131, 0.0132, 0.0002, -0.0637, -0.9642], "close": [141.0, 140.0, 145.5, 160.0, 170.0, 178.0, 178.5, 164.0, 164.0, 164.5, 169.0, 165.5, 170.5, 166.0, 155.0, 163.0, 156.0, 153.5, 151.0, 166.0, 160.0, 144.0, 130.0, 134.5, 139.0, 138.5, 128.0, null, 126.0, 102.5, 110.0, null, 121.0, null, 118.0, 118.5, 122.0, 116.0, 123.0, 123.0, 123.0, 124.5, 121.0, 121.5, 119.0, 115.5, 115.5, 116.5, 123.5, 125.0, 123.5, null, 118.5]}]};
+
+const svgNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs) {
+  const e = document.createElementNS(svgNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function render() {
+  const totalDays = DATA.stocks[0] ? DATA.stocks[0].dates.length : 0;
+  document.getElementById('subtitle').textContent =
+    `共 ${totalDays} 個交易日 ・ 變動率 = 當天跨ETF合計持股股數變化 / 前一日合計股數 ・ 上圖股價、下圖變動率（Y軸為對數座標），各自獨立Y軸，共用日期軸`;
+
+  const tooltip = document.getElementById('tooltip');
+  function showTooltip(evt, date, rows) {
+    tooltip.innerHTML = '';
+    const title = document.createElement('div');
+    title.className = 't-title';
+    title.textContent = date;
+    tooltip.appendChild(title);
+    rows.forEach(([k, v, digits, suffix]) => {
+      const row = document.createElement('div');
+      row.className = 't-row';
+      const kEl = document.createElement('span'); kEl.textContent = k;
+      const vEl = document.createElement('span'); vEl.className = 't-val';
+      vEl.textContent = v === null || v === undefined ? '—' : (typeof v === 'number' ? v.toFixed(digits ?? 2) + (suffix || '') : v);
+      row.appendChild(kEl); row.appendChild(vEl);
+      tooltip.appendChild(row);
+    });
+    tooltip.classList.add('show');
+    moveTooltip(evt);
+  }
+  function moveTooltip(evt) {
+    const pad = 14;
+    let left = evt.clientX + pad, top = evt.clientY + pad;
+    if (left + 190 > window.innerWidth) left = evt.clientX - 190 - pad;
+    if (top + 110 > window.innerHeight) top = evt.clientY - 110 - pad;
+    tooltip.style.left = left + 'px'; tooltip.style.top = top + 'px';
+  }
+  function hideTooltip() { tooltip.classList.remove('show'); }
+
+  const chartWrap = document.getElementById('chartWrap');
+  chartWrap.innerHTML = '';
+
+  DATA.stocks.forEach(stock => {
+    const dates = stock.dates;
+    const W = 460;
+    const PH = 90, PM = { top: 8, right: 10, bottom: 4, left: 40 };
+    const VH = 90, VM = { top: 8, right: 10, bottom: 18, left: 40 };
+    const pPlotW = W - PM.left - PM.right;
+    const vPlotW = W - VM.left - VM.right;
+    const pPlotH = PH - PM.top - PM.bottom;
+    const vPlotH = VH - VM.top - VM.bottom;
+
+    const xAt = (i, plotW, left) => left + (dates.length <= 1 ? plotW / 2 : (i / (dates.length - 1)) * plotW);
+
+    // --- price sub-chart ---
+    const priceSvg = el('svg', { viewBox: `0 0 ${W} ${PH}`, role: 'img', 'aria-label': `${stock.stock_code} ${stock.stock_name} 股價走勢` });
+    const closes = stock.close.filter(v => v !== null);
+    if (closes.length > 1) {
+      const cMin = Math.min(...closes), cMax = Math.max(...closes);
+      const cPad = (cMax - cMin) * 0.15 || Math.max(cMax * 0.02, 1);
+      const priceYScale = v => PM.top + (cMax + cPad - v) / (cMax - cMin + 2 * cPad) * pPlotH;
+
+      [cMin, cMax].forEach(v => {
+        priceSvg.appendChild(el('line', { class: 'grid-line', x1: PM.left, y1: priceYScale(v), x2: W - PM.right, y2: priceYScale(v) }));
+        const t = el('text', { class: 'tick-label', x: PM.left - 6, y: priceYScale(v) + 3, 'text-anchor': 'end' });
+        t.textContent = v.toFixed(1);
+        priceSvg.appendChild(t);
+      });
+
+      const pricePts = stock.close.map((v, i) => ({ i, v })).filter(p => p.v !== null);
+      const pd = pricePts.map((p, k) => `${k === 0 ? 'M' : 'L'} ${xAt(p.i, pPlotW, PM.left)} ${priceYScale(p.v)}`).join(' ');
+      priceSvg.appendChild(el('path', { class: 'line-price', d: pd }));
+      const lastP = pricePts[pricePts.length - 1];
+      priceSvg.appendChild(el('circle', { class: 'end-dot', cx: xAt(lastP.i, pPlotW, PM.left), cy: priceYScale(lastP.v), r: 3.5, fill: 'var(--price-line)' }));
+
+      dates.forEach((date, i) => {
+        if (stock.close[i] === null) return;
+        const hitW = pPlotW / Math.max(dates.length - 1, 1);
+        const hit = el('rect', { class: 'hit', x: xAt(i, pPlotW, PM.left) - hitW / 2, y: 0, width: hitW, height: PH });
+        hit.addEventListener('pointerenter', evt => showTooltip(evt, date, [['收盤價', stock.close[i], 2]]));
+        hit.addEventListener('pointermove', moveTooltip);
+        hit.addEventListener('pointerleave', hideTooltip);
+        priceSvg.appendChild(hit);
+      });
+    }
+
+    // --- variation-rate sub-chart (diverging bars around zero, signed-log
+    // y-axis -- daily variation rates commonly span from a fraction of a
+    // percent to several thousand percent in one bar's neighbors (a tiny
+    // prior share base inflates the %% change), so a linear axis would
+    // crush every ordinary day into invisibility next to one spike. ---
+    const varSvg = el('svg', { viewBox: `0 0 ${W} ${VH}`, role: 'img', 'aria-label': `${stock.stock_code} ${stock.stock_name} 跨ETF變動率` });
+    const vAbs = stock.variation_rate.filter(v => v !== null).map(Math.abs);
+    const vMax = Math.max(...vAbs, 0.01) * 1.15;
+    const vLogT = v => Math.sign(v) * Math.log10(Math.abs(v) + 1);
+    const vMaxLog = vLogT(vMax);
+    // Sign fixed to match the price/quadrant charts' convention (larger
+    // positive -> smaller pixel y -> renders higher): using (vLogT(v) +
+    // vMaxLog) here was backwards and put positive bars *below* the zero
+    // line instead of above it, so they never actually touched zeroY.
+    const varYScale = v => VM.top + (vMaxLog - vLogT(v)) / (2 * vMaxLog) * vPlotH;
+    const zeroY = varYScale(0);
+
+    varSvg.appendChild(el('line', { class: 'zero-line', x1: VM.left, y1: zeroY, x2: W - VM.right, y2: zeroY }));
+    [-0.5, 0.5].forEach(f => {
+      const gy = varYScale(Math.sign(f) * (Math.pow(10, Math.abs(f * vMaxLog)) - 1));
+      varSvg.appendChild(el('line', { class: 'grid-line', x1: VM.left, y1: gy, x2: W - VM.right, y2: gy }));
+    });
+    [vMax, -vMax].forEach(v => {
+      const t = el('text', { class: 'tick-label', x: VM.left - 6, y: varYScale(v) + 3, 'text-anchor': 'end' });
+      t.textContent = (v * 100).toFixed(1) + '%';
+      varSvg.appendChild(t);
+    });
+    [0, dates.length - 1].forEach(i => {
+      const t = el('text', { class: 'tick-label', x: xAt(i, vPlotW, VM.left), y: VH - 4, 'text-anchor': i === 0 ? 'start' : 'end' });
+      t.textContent = dates[i];
+      varSvg.appendChild(t);
+    });
+
+    const barW = Math.max(vPlotW / Math.max(dates.length, 1) * 0.6, 2);
+    dates.forEach((date, i) => {
+      const v = stock.variation_rate[i];
+      if (v === null || v === 0) return;
+      const x = xAt(i, vPlotW, VM.left);
+      const y = v > 0 ? varYScale(v) : zeroY;
+      const h = Math.abs(varYScale(v) - zeroY);
+      varSvg.appendChild(el('rect', { class: v > 0 ? 'bar-up' : 'bar-down', x: x - barW / 2, y, width: barW, height: h }));
+    });
+    dates.forEach((date, i) => {
+      const hitW = vPlotW / Math.max(dates.length - 1, 1);
+      const hit = el('rect', { class: 'hit', x: xAt(i, vPlotW, VM.left) - hitW / 2, y: VM.top, width: hitW, height: vPlotH });
+      hit.addEventListener('pointerenter', evt => showTooltip(evt, date, [['變動率', stock.variation_rate[i] === null ? null : stock.variation_rate[i] * 100, 2, '%']]));
+      hit.addEventListener('pointermove', moveTooltip);
+      hit.addEventListener('pointerleave', hideTooltip);
+      varSvg.appendChild(hit);
+    });
+
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    const titleRow = document.createElement('div');
+    titleRow.className = 'panel-title-row';
+    const title = document.createElement('p');
+    title.className = 'panel-title';
+    title.textContent = `${stock.stock_code} ${stock.stock_name}`;
+    titleRow.appendChild(title);
+    const tagClass = tag => {
+      if (tag === '出清') return 'tag liquidated';
+      if (tag.startsWith('連續買超')) return 'tag buy-streak';
+      if (tag.startsWith('連續賣超')) return 'tag sell-streak';
+      return 'tag';
+    };
+    (stock.tags || []).forEach(tag => {
+      const badge = document.createElement('span');
+      badge.className = tagClass(tag);
+      badge.textContent = tag;
+      titleRow.appendChild(badge);
+    });
+    panel.appendChild(titleRow);
+    panel.appendChild(priceSvg);
+    panel.appendChild(varSvg);
+    chartWrap.appendChild(panel);
+  });
+
+  const tableWrap = document.getElementById('tableWrap');
+  const table = document.createElement('table');
+  table.className = 'data-table';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  ['股票', '日期', '收盤價', '變動率(%)'].forEach(h => {
+    const th = document.createElement('th'); th.textContent = h; headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  DATA.stocks.forEach(stock => {
+    stock.dates.forEach((date, i) => {
+      const tr = document.createElement('tr');
+      const v = stock.variation_rate[i];
+      [
+        `${stock.stock_code} ${stock.stock_name}`, date,
+        stock.close[i] === null ? '—' : stock.close[i].toFixed(2),
+        v === null ? '—' : (v * 100).toFixed(2),
+      ].forEach(c => {
+        const td = document.createElement('td'); td.textContent = c; tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  });
+  table.appendChild(tbody);
+  tableWrap.innerHTML = '';
+  tableWrap.appendChild(table);
+}
+
+document.getElementById('tableToggle').addEventListener('click', () => {
+  const chart = document.getElementById('chartWrap');
+  const table = document.getElementById('tableWrap');
+  const showingTable = !table.classList.contains('hidden');
+  chart.classList.toggle('hidden', !showingTable);
+  table.classList.toggle('hidden', showingTable);
+  document.getElementById('tableToggle').textContent = showingTable ? '切換表格檢視' : '切換圖表檢視';
+});
+
+render();
+</script>
