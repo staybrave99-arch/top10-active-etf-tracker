@@ -57,31 +57,36 @@ def fetch_all(conn_str):
     return holdings, prices, names
 
 
-def _three_day_streak(g):
+def _three_day_streak(g, last3_dates):
     """g: one stock's (trade_date, shares, variation_rate) rows, any order.
-    Returns (direction, total_rate) or None if the last 3 defined daily
-    rates aren't all the same sign, or there's no prior day to baseline
-    the 3-day total against.
+    last3_dates: the dataset's own [D-2, D-1, D] trading dates (ascending)
+    -- NOT whatever 3 rows this stock last happened to have. A stock
+    missing a variation_rate on any one of those exact 3 dates (a gap in
+    its own disclosure, e.g. it dropped out of a fund's reported top-N
+    for a day) does not count as "continuous," even if it has 3 valid
+    rates somewhere earlier in its history.
     """
-    g = g.sort_values("trade_date").reset_index(drop=True)
-    valid = g[g["variation_rate"].notna()].reset_index(drop=True)
-    if len(valid) < 3:
+    by_date = g.set_index("trade_date")
+    if not all(d in by_date.index for d in last3_dates):
         return None
-    last3 = valid.iloc[-3:]
-    if (last3["variation_rate"] > 0).all():
+    rates = by_date.loc[last3_dates, "variation_rate"]
+    if rates.isna().any():
+        return None
+    if (rates > 0).all():
         direction = "buy"
-    elif (last3["variation_rate"] < 0).all():
+    elif (rates < 0).all():
         direction = "sell"
     else:
         return None
 
+    g = g.sort_values("trade_date").reset_index(drop=True)
     dates_sorted = g["trade_date"].tolist()
     shares_sorted = g["shares"].tolist()
-    start_pos = dates_sorted.index(last3["trade_date"].iloc[0])
+    start_pos = dates_sorted.index(last3_dates[0])
     if start_pos == 0:
         return None
     start_shares = shares_sorted[start_pos - 1]
-    end_shares = shares_sorted[dates_sorted.index(last3["trade_date"].iloc[-1])]
+    end_shares = by_date.loc[last3_dates[-1], "shares"]
     if not start_shares:
         return None
     return direction, (end_shares - start_shares) / start_shares
@@ -96,14 +101,18 @@ def main():
     combined = combined.sort_values(["stock_code", "trade_date"])
     combined["variation_rate"] = combined.groupby("stock_code")["shares"].pct_change()
 
-    latest_date = combined["trade_date"].max()
+    all_dates = sorted(combined["trade_date"].unique())
+    latest_date = all_dates[-1]
+    last3_dates = all_dates[-3:]
+    print(f"latest_date={pd.Timestamp(latest_date).date()}, 3-day window={[pd.Timestamp(d).date() for d in last3_dates]}")
+
     latest = combined[(combined["trade_date"] == latest_date) & combined["variation_rate"].notna()]
     top_buy_today = latest.sort_values("variation_rate", ascending=False).head(5)
     top_sell_today = latest.sort_values("variation_rate", ascending=True).head(5)
 
     streak_rows = []
     for code, g in combined.groupby("stock_code"):
-        info = _three_day_streak(g)
+        info = _three_day_streak(g, last3_dates)
         if info is None:
             continue
         direction, total_rate = info
@@ -116,7 +125,7 @@ def main():
     def fmt(code, rate):
         return f"{code} {names.get(code, '')} {rate * 100:+.2f}%"
 
-    print(f"=== latest_date={latest_date.date()}: today's biggest buy (top 5) ===")
+    print(f"=== latest_date={pd.Timestamp(latest_date).date()}: today's biggest buy (top 5) ===")
     for _, r in top_buy_today.iterrows():
         print(" ", fmt(r["stock_code"], r["variation_rate"]))
     print("=== today's biggest sell (top 5) ===")
