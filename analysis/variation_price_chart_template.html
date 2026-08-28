@@ -1,0 +1,338 @@
+<title>個股變動率與股價走勢</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --red:            #e34948;
+    --red-soft:       #e3494814;
+    --blue:           #2a78d6;
+    --blue-soft:      #2a78d614;
+    --price-line:     #52514e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --red:            #e66767;
+      --red-soft:       #e6676722;
+      --blue:           #3987e5;
+      --blue-soft:      #3987e522;
+      --price-line:     #c3c2b7;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --red:            #e66767;
+    --red-soft:       #e6676722;
+    --blue:           #3987e5;
+    --blue-soft:      #3987e522;
+    --price-line:     #c3c2b7;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--text-primary);
+  }
+  .viz-root { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; line-height: 1.5; }
+
+  .legend { display: flex; gap: 16px; align-items: center; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; margin-bottom: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+  .swatch.price { width: 16px; height: 2px; border-radius: 1px; background: var(--price-line); }
+  .swatch.up { background: var(--red); }
+  .swatch.down { background: var(--blue); }
+
+  button.toggle {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    margin-bottom: 16px;
+  }
+  button.toggle:hover { color: var(--text-primary); border-color: var(--axis); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 14px 8px;
+  }
+  .panel-title { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+  .panel-subtitle { font-size: 10px; fill: var(--text-muted); }
+
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .zero-line { stroke: var(--axis); stroke-width: 1; }
+  .tick-label { font-size: 10px; fill: var(--text-muted); }
+  .line-price { fill: none; stroke: var(--price-line); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .bar-up { fill: var(--red); }
+  .bar-down { fill: var(--blue); }
+  .end-dot { stroke: var(--surface-1); stroke-width: 2; }
+  .hit { fill: transparent; cursor: pointer; }
+
+  .tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 10;
+    min-width: 150px;
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip .t-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+  .tooltip .t-row { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
+  .tooltip .t-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+  table.data-table th, table.data-table td {
+    text-align: right;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  table.data-table th:first-child, table.data-table td:first-child,
+  table.data-table th:nth-child(2), table.data-table td:nth-child(2) {
+    text-align: left;
+    font-variant-numeric: normal;
+  }
+  table.data-table th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  .hidden { display: none; }
+</style>
+
+<div class="viz-root">
+  <h1>個股變動率與股價走勢</h1>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="legend">
+    <span class="legend-item"><span class="swatch price"></span>收盤價</span>
+    <span class="legend-item"><span class="swatch up"></span>變動率 &gt; 0（跨ETF合計加碼）</span>
+    <span class="legend-item"><span class="swatch down"></span>變動率 &lt; 0（跨ETF合計減碼）</span>
+  </div>
+
+  <button class="toggle" id="tableToggle">切換表格檢視</button>
+
+  <div id="chartWrap" class="grid"></div>
+  <div id="tableWrap" class="hidden"></div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const DATA = __VP_DATA__;
+
+const svgNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs) {
+  const e = document.createElementNS(svgNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function render() {
+  const totalDays = DATA.stocks[0] ? DATA.stocks[0].dates.length : 0;
+  document.getElementById('subtitle').textContent =
+    `共 ${totalDays} 個交易日 ・ 變動率 = 當天跨ETF合計持股股數變化 / 前一日合計股數 ・ 上圖股價、下圖變動率，各自獨立Y軸，共用日期軸`;
+
+  const tooltip = document.getElementById('tooltip');
+  function showTooltip(evt, date, rows) {
+    tooltip.innerHTML = '';
+    const title = document.createElement('div');
+    title.className = 't-title';
+    title.textContent = date;
+    tooltip.appendChild(title);
+    rows.forEach(([k, v, digits, suffix]) => {
+      const row = document.createElement('div');
+      row.className = 't-row';
+      const kEl = document.createElement('span'); kEl.textContent = k;
+      const vEl = document.createElement('span'); vEl.className = 't-val';
+      vEl.textContent = v === null || v === undefined ? '—' : (typeof v === 'number' ? v.toFixed(digits ?? 2) + (suffix || '') : v);
+      row.appendChild(kEl); row.appendChild(vEl);
+      tooltip.appendChild(row);
+    });
+    tooltip.classList.add('show');
+    moveTooltip(evt);
+  }
+  function moveTooltip(evt) {
+    const pad = 14;
+    let left = evt.clientX + pad, top = evt.clientY + pad;
+    if (left + 190 > window.innerWidth) left = evt.clientX - 190 - pad;
+    if (top + 110 > window.innerHeight) top = evt.clientY - 110 - pad;
+    tooltip.style.left = left + 'px'; tooltip.style.top = top + 'px';
+  }
+  function hideTooltip() { tooltip.classList.remove('show'); }
+
+  const chartWrap = document.getElementById('chartWrap');
+  chartWrap.innerHTML = '';
+
+  DATA.stocks.forEach(stock => {
+    const dates = stock.dates;
+    const W = 460;
+    const PH = 90, PM = { top: 8, right: 10, bottom: 4, left: 40 };
+    const VH = 90, VM = { top: 8, right: 10, bottom: 18, left: 40 };
+    const pPlotW = W - PM.left - PM.right;
+    const vPlotW = W - VM.left - VM.right;
+    const pPlotH = PH - PM.top - PM.bottom;
+    const vPlotH = VH - VM.top - VM.bottom;
+
+    const xAt = (i, plotW, left) => left + (dates.length <= 1 ? plotW / 2 : (i / (dates.length - 1)) * plotW);
+
+    // --- price sub-chart ---
+    const priceSvg = el('svg', { viewBox: `0 0 ${W} ${PH}`, role: 'img', 'aria-label': `${stock.stock_code} ${stock.stock_name} 股價走勢` });
+    const closes = stock.close.filter(v => v !== null);
+    if (closes.length > 1) {
+      const cMin = Math.min(...closes), cMax = Math.max(...closes);
+      const cPad = (cMax - cMin) * 0.15 || Math.max(cMax * 0.02, 1);
+      const priceYScale = v => PM.top + (cMax + cPad - v) / (cMax - cMin + 2 * cPad) * pPlotH;
+
+      [cMin, cMax].forEach(v => {
+        priceSvg.appendChild(el('line', { class: 'grid-line', x1: PM.left, y1: priceYScale(v), x2: W - PM.right, y2: priceYScale(v) }));
+        const t = el('text', { class: 'tick-label', x: PM.left - 6, y: priceYScale(v) + 3, 'text-anchor': 'end' });
+        t.textContent = v.toFixed(1);
+        priceSvg.appendChild(t);
+      });
+
+      const pricePts = stock.close.map((v, i) => ({ i, v })).filter(p => p.v !== null);
+      const pd = pricePts.map((p, k) => `${k === 0 ? 'M' : 'L'} ${xAt(p.i, pPlotW, PM.left)} ${priceYScale(p.v)}`).join(' ');
+      priceSvg.appendChild(el('path', { class: 'line-price', d: pd }));
+      const lastP = pricePts[pricePts.length - 1];
+      priceSvg.appendChild(el('circle', { class: 'end-dot', cx: xAt(lastP.i, pPlotW, PM.left), cy: priceYScale(lastP.v), r: 3.5, fill: 'var(--price-line)' }));
+
+      dates.forEach((date, i) => {
+        if (stock.close[i] === null) return;
+        const hitW = pPlotW / Math.max(dates.length - 1, 1);
+        const hit = el('rect', { class: 'hit', x: xAt(i, pPlotW, PM.left) - hitW / 2, y: 0, width: hitW, height: PH });
+        hit.addEventListener('pointerenter', evt => showTooltip(evt, date, [['收盤價', stock.close[i], 2]]));
+        hit.addEventListener('pointermove', moveTooltip);
+        hit.addEventListener('pointerleave', hideTooltip);
+        priceSvg.appendChild(hit);
+      });
+    }
+
+    // --- variation-rate sub-chart (diverging bars around zero) ---
+    const varSvg = el('svg', { viewBox: `0 0 ${W} ${VH}`, role: 'img', 'aria-label': `${stock.stock_code} ${stock.stock_name} 跨ETF變動率` });
+    const vAbs = stock.variation_rate.filter(v => v !== null).map(Math.abs);
+    const vMax = Math.max(...vAbs, 0.01) * 1.15;
+    const varYScale = v => VM.top + (vMax - v) / (2 * vMax) * vPlotH;
+    const zeroY = varYScale(0);
+
+    varSvg.appendChild(el('line', { class: 'zero-line', x1: VM.left, y1: zeroY, x2: W - VM.right, y2: zeroY }));
+    [vMax, -vMax].forEach(v => {
+      const t = el('text', { class: 'tick-label', x: VM.left - 6, y: varYScale(v) + 3, 'text-anchor': 'end' });
+      t.textContent = (v * 100).toFixed(1) + '%';
+      varSvg.appendChild(t);
+    });
+    [0, dates.length - 1].forEach(i => {
+      const t = el('text', { class: 'tick-label', x: xAt(i, vPlotW, VM.left), y: VH - 4, 'text-anchor': i === 0 ? 'start' : 'end' });
+      t.textContent = dates[i];
+      varSvg.appendChild(t);
+    });
+
+    const barW = Math.max(vPlotW / Math.max(dates.length, 1) * 0.6, 2);
+    dates.forEach((date, i) => {
+      const v = stock.variation_rate[i];
+      if (v === null || v === 0) return;
+      const x = xAt(i, vPlotW, VM.left);
+      const y = v > 0 ? varYScale(v) : zeroY;
+      const h = Math.abs(varYScale(v) - zeroY);
+      varSvg.appendChild(el('rect', { class: v > 0 ? 'bar-up' : 'bar-down', x: x - barW / 2, y, width: barW, height: h }));
+    });
+    dates.forEach((date, i) => {
+      const hitW = vPlotW / Math.max(dates.length - 1, 1);
+      const hit = el('rect', { class: 'hit', x: xAt(i, vPlotW, VM.left) - hitW / 2, y: VM.top, width: hitW, height: vPlotH });
+      hit.addEventListener('pointerenter', evt => showTooltip(evt, date, [['變動率', stock.variation_rate[i] === null ? null : stock.variation_rate[i] * 100, 2, '%']]));
+      hit.addEventListener('pointermove', moveTooltip);
+      hit.addEventListener('pointerleave', hideTooltip);
+      varSvg.appendChild(hit);
+    });
+
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    const title = document.createElement('p');
+    title.className = 'panel-title';
+    title.textContent = `${stock.stock_code} ${stock.stock_name}`;
+    panel.appendChild(title);
+    panel.appendChild(priceSvg);
+    panel.appendChild(varSvg);
+    chartWrap.appendChild(panel);
+  });
+
+  const tableWrap = document.getElementById('tableWrap');
+  const table = document.createElement('table');
+  table.className = 'data-table';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  ['股票', '日期', '收盤價', '變動率(%)'].forEach(h => {
+    const th = document.createElement('th'); th.textContent = h; headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  DATA.stocks.forEach(stock => {
+    stock.dates.forEach((date, i) => {
+      const tr = document.createElement('tr');
+      const v = stock.variation_rate[i];
+      [
+        `${stock.stock_code} ${stock.stock_name}`, date,
+        stock.close[i] === null ? '—' : stock.close[i].toFixed(2),
+        v === null ? '—' : (v * 100).toFixed(2),
+      ].forEach(c => {
+        const td = document.createElement('td'); td.textContent = c; tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  });
+  table.appendChild(tbody);
+  tableWrap.innerHTML = '';
+  tableWrap.appendChild(table);
+}
+
+document.getElementById('tableToggle').addEventListener('click', () => {
+  const chart = document.getElementById('chartWrap');
+  const table = document.getElementById('tableWrap');
+  const showingTable = !table.classList.contains('hidden');
+  chart.classList.toggle('hidden', !showingTable);
+  table.classList.toggle('hidden', showingTable);
+  document.getElementById('tableToggle').textContent = showingTable ? '切換表格檢視' : '切換圖表檢視';
+});
+
+render();
+</script>

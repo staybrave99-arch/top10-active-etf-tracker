@@ -15,3 +15,5 @@ analysis/real_*.csv
 analysis/real_*.json
 analysis/correlation_data.json
 analysis/correlation_chart.html
+analysis/variation_price_data.json
+analysis/variation_price_chart.html
