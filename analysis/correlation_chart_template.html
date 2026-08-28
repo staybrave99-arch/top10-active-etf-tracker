@@ -1,0 +1,324 @@
+<title>個股變動率與股價相關性</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --price-line:     #52514e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --price-line:     #c3c2b7;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --price-line:     #c3c2b7;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--text-primary);
+  }
+  .viz-root { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; line-height: 1.5; }
+
+  .legend { display: flex; gap: 16px; align-items: center; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; margin-bottom: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+  .swatch.s1 { background: var(--series-1); }
+  .swatch.s2 { background: var(--series-2); }
+  .swatch.price { background: var(--price-line); }
+
+  button.toggle {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    margin-bottom: 16px;
+  }
+  button.toggle:hover { color: var(--text-primary); border-color: var(--axis); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 14px 8px;
+  }
+  .panel-title { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+  .panel-meta { font-size: 11px; color: var(--text-muted); margin: 0 0 8px; }
+
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .zero-line { stroke: var(--axis); stroke-width: 1; }
+  .tick-label { font-size: 10px; fill: var(--text-muted); }
+  .line-s1 { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .line-s2 { fill: none; stroke: var(--series-2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .line-price { fill: none; stroke: var(--price-line); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .panel-subtitle { font-size: 11px; fill: var(--text-muted); }
+  .end-dot { stroke: var(--surface-1); stroke-width: 2; }
+  .hit { fill: transparent; cursor: pointer; }
+
+  .tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 10;
+    min-width: 150px;
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip .t-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+  .tooltip .t-row { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
+  .tooltip .t-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+  table.data-table th, table.data-table td {
+    text-align: right;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  table.data-table th:first-child, table.data-table td:first-child,
+  table.data-table th:nth-child(2), table.data-table td:nth-child(2) {
+    text-align: left;
+    font-variant-numeric: normal;
+  }
+  table.data-table th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  .hidden { display: none; }
+</style>
+
+<div class="viz-root">
+  <h1>個股變動率與股價相關性（Spearman，滾動窗口）</h1>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="legend">
+    <span class="legend-item"><span class="swatch price"></span>收盤價（右軸）</span>
+    <span class="legend-item"><span class="swatch s1"></span>同日：當天變動率 vs 當天股價報酬（左軸）</span>
+    <span class="legend-item"><span class="swatch s2"></span>領先一天：當天變動率 vs 隔天股價報酬（左軸）</span>
+  </div>
+
+  <button class="toggle" id="tableToggle">切換表格檢視</button>
+
+  <div id="chartWrap" class="grid"></div>
+  <div id="tableWrap" class="hidden"></div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const DATA = __CORR_DATA__;
+
+const svgNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs) {
+  const e = document.createElementNS(svgNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function render() {
+  document.getElementById('subtitle').textContent =
+    `滾動窗口：${DATA.window} 個交易日（至少 ${DATA.min_periods} 天才計算）・每點代表窗口內的相關係數，樣本數還小，僅供觀察趨勢`;
+
+  const tooltip = document.getElementById('tooltip');
+  function showTooltip(evt, date, rows) {
+    tooltip.innerHTML = '';
+    const title = document.createElement('div');
+    title.className = 't-title';
+    title.textContent = date;
+    tooltip.appendChild(title);
+    rows.forEach(([k, v, digits]) => {
+      const row = document.createElement('div');
+      row.className = 't-row';
+      const kEl = document.createElement('span'); kEl.textContent = k;
+      const vEl = document.createElement('span'); vEl.className = 't-val';
+      vEl.textContent = v === null || v === undefined ? '—' : (typeof v === 'number' ? v.toFixed(digits ?? 3) : v);
+      row.appendChild(kEl); row.appendChild(vEl);
+      tooltip.appendChild(row);
+    });
+    tooltip.classList.add('show');
+    moveTooltip(evt);
+  }
+  function moveTooltip(evt) {
+    const pad = 14;
+    let left = evt.clientX + pad, top = evt.clientY + pad;
+    if (left + 190 > window.innerWidth) left = evt.clientX - 190 - pad;
+    if (top + 100 > window.innerHeight) top = evt.clientY - 100 - pad;
+    tooltip.style.left = left + 'px'; tooltip.style.top = top + 'px';
+  }
+  function hideTooltip() { tooltip.classList.remove('show'); }
+
+  const chartWrap = document.getElementById('chartWrap');
+  chartWrap.innerHTML = '';
+
+  DATA.stocks.forEach(stock => {
+    const W = 460, H = 200;
+    // Right margin widened to fit the price axis's tick labels alongside
+    // the correlation axis on the left -- two y-scales sharing one plot,
+    // per request.
+    const M = { top: 10, right: 40, bottom: 22, left: 34 };
+    const plotW = W - M.left - M.right;
+    const plotH = H - M.top - M.bottom;
+
+    const dates = stock.dates;
+    const xScale = i => M.left + (dates.length <= 1 ? plotW / 2 : (i / (dates.length - 1)) * plotW);
+    const yScale = v => M.top + (1 - v) / 2 * plotH; // left axis: correlation, -1..1
+
+    const closes = stock.close.filter(v => v !== null);
+    const cMin = closes.length ? Math.min(...closes) : 0;
+    const cMax = closes.length ? Math.max(...closes) : 1;
+    const cPad = (cMax - cMin) * 0.15 || Math.max(cMax * 0.02, 1);
+    const priceYScale = v => M.top + (cMax + cPad - v) / (cMax - cMin + 2 * cPad) * plotH; // right axis: price
+
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${stock.stock_code} ${stock.stock_name} 股價與滾動相關係數` });
+
+    [-1, -0.5, 0, 0.5, 1].forEach(v => {
+      svg.appendChild(el('line', { class: v === 0 ? 'zero-line' : 'grid-line', x1: M.left, y1: yScale(v), x2: W - M.right, y2: yScale(v) }));
+      const t = el('text', { class: 'tick-label', x: M.left - 6, y: yScale(v) + 3, 'text-anchor': 'end' });
+      t.textContent = v.toFixed(1);
+      svg.appendChild(t);
+    });
+
+    if (closes.length > 1) {
+      [cMin, cMax].forEach(v => {
+        const t = el('text', { class: 'tick-label', x: W - M.right + 6, y: priceYScale(v) + 3, 'text-anchor': 'start' });
+        t.textContent = v.toFixed(1);
+        svg.appendChild(t);
+      });
+    }
+
+    [0, dates.length - 1].forEach(i => {
+      if (i < 0) return;
+      const t = el('text', { class: 'tick-label', x: xScale(i), y: H - 6, 'text-anchor': i === 0 ? 'start' : 'end' });
+      t.textContent = dates[i];
+      svg.appendChild(t);
+    });
+
+    const drawLine = (values, cls, scale, color) => {
+      const pts = values.map((v, i) => ({ i, v })).filter(p => p.v !== null);
+      if (pts.length < 2) return;
+      const d = pts.map((p, k) => `${k === 0 ? 'M' : 'L'} ${xScale(p.i)} ${scale(p.v)}`).join(' ');
+      svg.appendChild(el('path', { class: cls, d }));
+      const last = pts[pts.length - 1];
+      svg.appendChild(el('circle', { class: 'end-dot', cx: xScale(last.i), cy: scale(last.v), r: 4, fill: color }));
+    };
+    drawLine(stock.close, 'line-price', priceYScale, 'var(--price-line)');
+    drawLine(stock.same_day_spearman, 'line-s1', yScale, 'var(--series-1)');
+    drawLine(stock.lead1_spearman, 'line-s2', yScale, 'var(--series-2)');
+
+    dates.forEach((date, i) => {
+      const hit = el('rect', { class: 'hit', x: xScale(i) - (plotW / Math.max(dates.length - 1, 1)) / 2, y: M.top, width: plotW / Math.max(dates.length - 1, 1), height: plotH });
+      hit.addEventListener('pointerenter', evt => showTooltip(evt, date, [
+        ['收盤價', stock.close[i], 2],
+        ['同日相關', stock.same_day_spearman[i]],
+        ['領先一天相關', stock.lead1_spearman[i]],
+        ['窗口內天數', stock.n_variation_days[i], 0],
+      ]));
+      hit.addEventListener('pointermove', moveTooltip);
+      hit.addEventListener('pointerleave', hideTooltip);
+      svg.appendChild(hit);
+    });
+
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    const title = document.createElement('p');
+    title.className = 'panel-title';
+    title.textContent = `${stock.stock_code} ${stock.stock_name}`;
+    const meta = document.createElement('p');
+    meta.className = 'panel-meta';
+    const validN = stock.same_day_spearman.filter(v => v !== null).length;
+    meta.textContent = `${validN} 個滾動窗口點・左軸=相關係數，右軸=股價`;
+    panel.appendChild(title);
+    panel.appendChild(meta);
+    panel.appendChild(svg);
+    chartWrap.appendChild(panel);
+  });
+
+  const tableWrap = document.getElementById('tableWrap');
+  const table = document.createElement('table');
+  table.className = 'data-table';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  ['股票', '日期', '同日 Pearson', '同日 Spearman', '領先一天 Pearson', '領先一天 Spearman', '窗口天數'].forEach(h => {
+    const th = document.createElement('th'); th.textContent = h; headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  DATA.stocks.forEach(stock => {
+    stock.dates.forEach((date, i) => {
+      const tr = document.createElement('tr');
+      const fmt = v => v === null ? '—' : v.toFixed(3);
+      [
+        `${stock.stock_code} ${stock.stock_name}`, date,
+        fmt(stock.same_day_pearson[i]), fmt(stock.same_day_spearman[i]),
+        fmt(stock.lead1_pearson[i]), fmt(stock.lead1_spearman[i]),
+        String(stock.n_variation_days[i]),
+      ].forEach(c => {
+        const td = document.createElement('td'); td.textContent = c; tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  });
+  table.appendChild(tbody);
+  tableWrap.innerHTML = '';
+  tableWrap.appendChild(table);
+}
+
+document.getElementById('tableToggle').addEventListener('click', () => {
+  const chart = document.getElementById('chartWrap');
+  const table = document.getElementById('tableWrap');
+  const showingTable = !table.classList.contains('hidden');
+  chart.classList.toggle('hidden', !showingTable);
+  table.classList.toggle('hidden', showingTable);
+  document.getElementById('tableToggle').textContent = showingTable ? '切換表格檢視' : '切換圖表檢視';
+});
+
+render();
+</script>
