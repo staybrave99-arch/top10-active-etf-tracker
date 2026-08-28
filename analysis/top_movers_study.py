@@ -129,6 +129,17 @@ def main():
     for _, r in top_sell_streak.iterrows():
         print(" ", fmt(r["stock_code"], r["total_rate"]))
 
+    tags_by_code = {}
+
+    def add_tags(ranked_df, label):
+        for rank, (_, r) in enumerate(ranked_df.iterrows(), start=1):
+            tags_by_code.setdefault(r["stock_code"], []).append(f"{label}第{rank}名")
+
+    add_tags(top_buy_today, "買超")
+    add_tags(top_sell_today, "賣超")
+    add_tags(top_buy_streak, "連續買超")
+    add_tags(top_sell_streak, "連續賣超")
+
     selected = list(
         dict.fromkeys(
             list(top_buy_today["stock_code"])
@@ -150,6 +161,7 @@ def main():
             {
                 "stock_code": code,
                 "stock_name": names.get(code, ""),
+                "tags": tags_by_code.get(code, []),
                 "dates": [d.strftime("%Y-%m-%d") for d in df.index],
                 "variation_rate": col("variation_rate", 4),
                 "close": col("close", 2),

@@ -90,7 +90,17 @@
     border-radius: 12px;
     padding: 14px 14px 8px;
   }
-  .panel-title { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+  .panel-title-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .panel-title { font-size: 13px; font-weight: 600; margin: 0; }
+  .tag {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--grid);
+    border-radius: 999px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
   .panel-subtitle { font-size: 10px; fill: var(--text-muted); }
 
   svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -257,7 +267,11 @@ function render() {
     const vMax = Math.max(...vAbs, 0.01) * 1.15;
     const vLogT = v => Math.sign(v) * Math.log10(Math.abs(v) + 1);
     const vMaxLog = vLogT(vMax);
-    const varYScale = v => VM.top + (vLogT(v) + vMaxLog) / (2 * vMaxLog) * vPlotH;
+    // Sign fixed to match the price/quadrant charts' convention (larger
+    // positive -> smaller pixel y -> renders higher): using (vLogT(v) +
+    // vMaxLog) here was backwards and put positive bars *below* the zero
+    // line instead of above it, so they never actually touched zeroY.
+    const varYScale = v => VM.top + (vMaxLog - vLogT(v)) / (2 * vMaxLog) * vPlotH;
     const zeroY = varYScale(0);
 
     varSvg.appendChild(el('line', { class: 'zero-line', x1: VM.left, y1: zeroY, x2: W - VM.right, y2: zeroY }));
@@ -296,10 +310,19 @@ function render() {
 
     const panel = document.createElement('div');
     panel.className = 'panel';
+    const titleRow = document.createElement('div');
+    titleRow.className = 'panel-title-row';
     const title = document.createElement('p');
     title.className = 'panel-title';
     title.textContent = `${stock.stock_code} ${stock.stock_name}`;
-    panel.appendChild(title);
+    titleRow.appendChild(title);
+    (stock.tags || []).forEach(tag => {
+      const badge = document.createElement('span');
+      badge.className = 'tag';
+      badge.textContent = tag;
+      titleRow.appendChild(badge);
+    });
+    panel.appendChild(titleRow);
     panel.appendChild(priceSvg);
     panel.appendChild(varSvg);
     chartWrap.appendChild(panel);
