@@ -10,7 +10,7 @@ import os
 
 import pandas as pd
 
-from correlation_study import CHART_WINDOW_DAYS, build_series
+from correlation_study import build_series, shared_chart_axis
 from top_movers_study import LIQUIDATION_THRESHOLD, compute_screens, fetch_all, fmt
 
 OUT_PATH = os.path.join(os.path.dirname(__file__), "..", "docs", "top_movers.html")
@@ -79,9 +79,10 @@ def main():
         selected = screens["selected"]
         tags_by_code = screens["tags_by_code"]
 
+        chart_axis = shared_chart_axis(holdings, prices)
         data = {"stocks": []}
         for code in selected:
-            df = build_series(holdings, prices, code, window=CHART_WINDOW_DAYS)
+            df = build_series(holdings, prices, code, date_axis=chart_axis)
 
             def col(name_, digits):
                 return [None if pd.isna(v) else round(float(v), digits) for v in df[name_]]

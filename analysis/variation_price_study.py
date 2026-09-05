@@ -13,7 +13,7 @@ import os
 
 import pandas as pd
 
-from correlation_study import CHART_WINDOW_DAYS, DEFAULT_STOCKS, build_series, fetch
+from correlation_study import DEFAULT_STOCKS, build_series, fetch, shared_chart_axis
 
 
 def main():
@@ -23,9 +23,10 @@ def main():
     holdings, prices = fetch(conn_str, stocks.keys())
     print(f"holdings rows: {len(holdings)}, price rows: {len(prices)}")
 
+    chart_axis = shared_chart_axis(holdings, prices)
     result = {"stocks": []}
     for code, name in stocks.items():
-        df = build_series(holdings, prices, code, window=CHART_WINDOW_DAYS)
+        df = build_series(holdings, prices, code, date_axis=chart_axis)
         print(f"{code} {name}: {len(df)} days")
 
         dates = [d.strftime("%Y-%m-%d") for d in df.index]

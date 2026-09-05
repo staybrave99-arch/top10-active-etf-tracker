@@ -76,11 +76,33 @@ def fetch(conn_str, stock_codes):
     return holdings, prices
 
 
-def build_series(holdings, prices, code, window=None):
+def shared_chart_axis(holdings, prices, window=CHART_WINDOW_DAYS):
+    """The last `window` calendar dates seen in EITHER holdings or prices,
+    for passing as build_series(..., date_axis=...) so every stock in a
+    multi-panel chart plots against the same x-axis. Union of both tables
+    (not holdings alone) so a day where only price has posted yet isn't
+    dropped from the shared window.
+    """
+    all_dates = sorted(set(holdings["trade_date"].unique()) | set(prices["trade_date"].unique()))
+    return all_dates[-window:]
+
+
+def build_series(holdings, prices, code, window=None, date_axis=None):
     """window: if given, keep only the most recent `window` rows -- rolling
     correlation callers need the full history and leave this at None; chart
     callers pass a window so a stock with months of accumulated history
     doesn't get plotted as dozens of hairline-thin, near-untappable bars.
+
+    date_axis: if given (a sequence of dates), reindex onto it instead of
+    using this stock's own tail(window). Charts that plot several stocks
+    side by side need every stock on the SAME calendar x-axis -- letting
+    each stock independently tail() its own sparser-or-denser history
+    stretches each one across the full chart width on its own schedule,
+    so the same pixel column ends up meaning a different calendar date in
+    every panel. Passing the shared axis here makes a stock's chart show
+    an actual gap (null) for a date it has no data on, rather than
+    silently compressing its history to fill the width. Takes precedence
+    over `window` when both are given.
     """
     h = holdings[holdings["stock_code"] == code]
     combined = h.groupby("trade_date")["shares"].sum().sort_index()
@@ -93,7 +115,9 @@ def build_series(holdings, prices, code, window=None):
         {"close": p, "shares": combined, "variation_rate": variation_rate, "price_return": price_return}
     ).dropna(subset=["variation_rate", "price_return"], how="all")
     df["price_return_lead1"] = df["price_return"].shift(-1)
-    if window is not None:
+    if date_axis is not None:
+        df = df.reindex(pd.to_datetime(list(date_axis)))
+    elif window is not None:
         df = df.tail(window)
     return df
 

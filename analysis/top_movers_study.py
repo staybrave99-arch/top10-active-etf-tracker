@@ -34,7 +34,7 @@ import os
 import pandas as pd
 import psycopg2
 
-from correlation_study import CHART_WINDOW_DAYS, build_series
+from correlation_study import build_series, shared_chart_axis
 
 LIQUIDATION_THRESHOLD = -0.95  # sell variation rate more extreme than this -> "出清"
 MOVEMENT_THRESHOLD = 0.10  # |rate| must exceed this to be listed in any screen at all
@@ -205,9 +205,10 @@ def main():
     tags_by_code = screens["tags_by_code"]
     print(f"selected {len(selected)} distinct stocks: {selected}")
 
+    chart_axis = shared_chart_axis(holdings, prices)
     result = {"stocks": []}
     for code in selected:
-        df = build_series(holdings, prices, code, window=CHART_WINDOW_DAYS)
+        df = build_series(holdings, prices, code, date_axis=chart_axis)
 
         def col(name_, digits):
             return [None if pd.isna(v) else round(float(v), digits) for v in df[name_]]
