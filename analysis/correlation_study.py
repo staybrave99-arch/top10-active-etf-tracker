@@ -116,7 +116,21 @@ def build_series(holdings, prices, code, window=None, date_axis=None):
     ).dropna(subset=["variation_rate", "price_return"], how="all")
     df["price_return_lead1"] = df["price_return"].shift(-1)
     if date_axis is not None:
-        df = df.reindex(pd.to_datetime(list(date_axis)))
+        axis = pd.to_datetime(list(date_axis))
+        df = df.reindex(axis)
+        # Shares are a *state*, not an event: a day with no fresh PCF
+        # disclosure doesn't mean holdings vanished, it means they're
+        # still whatever they last were. Without this, shares and
+        # variation_rate visibly stopped a day or more before price on
+        # charts, purely because a fund's PCF happens to trail the
+        # exchange's own EOD post -- not because anything reportable
+        # changed. Forward-fill from the full pre-window history (so the
+        # window's own first day can still inherit a real prior value)
+        # and recompute variation_rate from that filled series, so a
+        # no-new-disclosure day correctly reads as 0% rather than a gap.
+        filled_full = combined.reindex(combined.index.union(axis)).ffill()
+        df["shares"] = filled_full.reindex(axis)
+        df["variation_rate"] = filled_full.pct_change().reindex(axis)
     elif window is not None:
         df = df.tail(window)
     return df
