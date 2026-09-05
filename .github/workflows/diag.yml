@@ -16,6 +16,9 @@ jobs:
       - name: Install Python deps
         run: pip install -r analysis/requirements.txt
 
+      - name: Dump capitalfund raw PCF date fields
+        run: python analysis/_diag_capitalfund_dates.py
+
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
