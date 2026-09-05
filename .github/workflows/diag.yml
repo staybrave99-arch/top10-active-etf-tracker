@@ -45,6 +45,7 @@ jobs:
           export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
           python analysis/_diag_date_lag.py
           python analysis/_diag_scraped_at.py
+          python analysis/_diag_mismatches.py
 
       - name: Stop DB proxy
         if: always()
