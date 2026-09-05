@@ -118,6 +118,10 @@
   .tag.liquidated { color: #ffffff; background: var(--violet); }
   .panel-subtitle { font-size: 10px; fill: var(--text-muted); }
 
+  .axis-label-row { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin: 2px 0; }
+  .axis-label.shares-axis { color: var(--blue); }
+  .axis-label.date-axis { text-align: center; font-size: 10px; color: var(--text-muted); margin: 2px 0 0; }
+
   svg { display: block; width: 100%; height: auto; overflow: visible; }
   .grid-line { stroke: var(--grid); stroke-width: 1; }
   .zero-line { stroke: var(--axis); stroke-width: 1; }
@@ -236,6 +240,20 @@ function render() {
   // only runs once in this template, so this listener is added exactly
   // once, not re-stacked.
   document.addEventListener('click', hideTooltip);
+
+  // The tooltip is position:fixed, so it stays put on screen -- not tied
+  // to any panel -- while the page scrolls underneath it. Scrolling is a
+  // pan gesture, not a click, so it never hit the listener above: without
+  // this, a tooltip pinned on one stock's chart would keep showing that
+  // stock's numbers after scrolling a *different* stock's chart into the
+  // same screen position, making it look like the new panel had wrong
+  // data. Every panel's own hideCrosshair() gets pushed into this array
+  // below so one scroll listener can clear all of them at once.
+  const allHideCrosshairs = [];
+  window.addEventListener('scroll', () => {
+    hideTooltip();
+    allHideCrosshairs.forEach(fn => fn());
+  }, { passive: true, capture: true });
 
   const chartWrap = document.getElementById('chartWrap');
   chartWrap.innerHTML = '';
@@ -378,6 +396,7 @@ function render() {
       varCrosshair.classList.remove('show');
       hideTooltip();
     }
+    allHideCrosshairs.push(hideCrosshair);
     // Pointer capture (set on down) keeps subsequent pointermove events
     // routed to the SAME overlay even if the finger drifts vertically into
     // the other sub-chart -- only clientX is used, so that's harmless and
@@ -436,9 +455,27 @@ function render() {
       badge.textContent = tag;
       titleRow.appendChild(badge);
     });
+    const axisLabelRow = (leftText, rightText) => {
+      const row = document.createElement('div');
+      row.className = 'axis-label-row';
+      const l = document.createElement('span'); l.className = 'axis-label price-axis'; l.textContent = leftText;
+      row.appendChild(l);
+      if (rightText) {
+        const r = document.createElement('span'); r.className = 'axis-label shares-axis'; r.textContent = rightText;
+        row.appendChild(r);
+      }
+      return row;
+    };
+
     panel.appendChild(titleRow);
+    panel.appendChild(axisLabelRow('股價（元・左軸）', '合計持股張數（張・右軸）'));
     panel.appendChild(priceSvg);
+    panel.appendChild(axisLabelRow('變動率（%・對數座標）'));
     panel.appendChild(varSvg);
+    const dateAxisLabel = document.createElement('div');
+    dateAxisLabel.className = 'axis-label date-axis';
+    dateAxisLabel.textContent = '日期';
+    panel.appendChild(dateAxisLabel);
     chartWrap.appendChild(panel);
   });
 
