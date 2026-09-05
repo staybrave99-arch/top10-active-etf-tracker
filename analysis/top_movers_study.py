@@ -220,6 +220,7 @@ def main():
                 "dates": [d.strftime("%Y-%m-%d") for d in df.index],
                 "variation_rate": col("variation_rate", 4),
                 "close": col("close", 2),
+                "shares": col("shares", 0),
             }
         )
 

@@ -6,6 +6,8 @@ on:
 jobs:
   diag:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -17,9 +19,6 @@ jobs:
         run: |
           pip install -r analysis/requirements.txt
           pip install -r requirements.txt
-
-      - name: Dump capitalfund raw PCF date fields
-        run: PYTHONPATH=. python analysis/_diag_capitalfund_dates.py
 
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
@@ -38,15 +37,27 @@ jobs:
             sleep 1
           done
 
-      - name: Run diagnostic
+      - name: Clean up the two future-dated capitalfund rows
         env:
           DATABASE_URL_RAW: ${{ secrets.DATABASE_URL }}
         run: |
           export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
-          python analysis/_diag_date_lag.py
-          python analysis/_diag_scraped_at.py
-          python analysis/_diag_mismatches.py
+          python analysis/_diag_fix_future_dates.py
+
+      - name: Generate top-movers report (preview only, no commit)
+        env:
+          DATABASE_URL_RAW: ${{ secrets.DATABASE_URL }}
+        run: |
+          export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
+          python analysis/generate_top_movers_report.py
 
       - name: Stop DB proxy
         if: always()
         run: kill "$(cat proxy.pid)" 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview
+          path: |
+            docs/top_movers.html
+            ntfy_payload.json

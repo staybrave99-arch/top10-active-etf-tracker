@@ -40,6 +40,7 @@ def main():
                 "dates": dates,
                 "variation_rate": col("variation_rate", 4),
                 "close": col("close", 2),
+                "shares": col("shares", 0),
             }
         )
 

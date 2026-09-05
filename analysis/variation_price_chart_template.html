@@ -76,6 +76,7 @@
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
   .swatch.price { width: 16px; height: 2px; border-radius: 1px; background: var(--price-line); }
+  .swatch.shares { width: 16px; height: 2px; border-radius: 1px; background: var(--blue); }
   .swatch.up { background: var(--red); }
   .swatch.down { background: var(--blue); }
 
@@ -122,6 +123,8 @@
   .zero-line { stroke: var(--axis); stroke-width: 1; }
   .tick-label { font-size: 10px; fill: var(--text-muted); }
   .line-price { fill: none; stroke: var(--price-line); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .line-shares { fill: none; stroke: var(--blue); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .shares-dot { fill: var(--blue); }
   .bar-up { fill: var(--red); }
   .bar-down { fill: var(--blue); }
   .end-dot { stroke: var(--surface-1); stroke-width: 2; }
@@ -170,7 +173,8 @@
   <p class="subtitle" id="subtitle"></p>
 
   <div class="legend">
-    <span class="legend-item"><span class="swatch price"></span>收盤價</span>
+    <span class="legend-item"><span class="swatch price"></span>收盤價（左軸）</span>
+    <span class="legend-item"><span class="swatch shares"></span>跨ETF合計持股張數（右軸）</span>
     <span class="legend-item"><span class="swatch up"></span>變動率 &gt; 0（跨ETF合計加碼）</span>
     <span class="legend-item"><span class="swatch down"></span>變動率 &lt; 0（跨ETF合計減碼）</span>
   </div>
@@ -196,7 +200,7 @@ function el(tag, attrs) {
 function render() {
   const totalDays = DATA.stocks[0] ? DATA.stocks[0].dates.length : 0;
   document.getElementById('subtitle').textContent =
-    `共 ${totalDays} 個交易日 ・ 變動率 = 當天跨ETF合計持股股數變化 / 前一日合計股數 ・ 上圖股價、下圖變動率（Y軸為對數座標），各自獨立Y軸，共用日期軸`;
+    `共 ${totalDays} 個交易日 ・ 變動率 = 當天跨ETF合計持股股數變化 / 前一日合計股數 ・ 上圖股價（左軸）與合計持股張數（右軸）雙Y軸、下圖變動率（Y軸為對數座標）・ 三者共用日期軸`;
 
   const tooltip = document.getElementById('tooltip');
   function showTooltip(evt, date, rows) {
@@ -239,7 +243,7 @@ function render() {
   DATA.stocks.forEach(stock => {
     const dates = stock.dates;
     const W = 460;
-    const PH = 90, PM = { top: 8, right: 10, bottom: 4, left: 40 };
+    const PH = 90, PM = { top: 8, right: 36, bottom: 4, left: 40 };
     const VH = 90, VM = { top: 8, right: 10, bottom: 18, left: 40 };
     const pPlotW = W - PM.left - PM.right;
     const vPlotW = W - VM.left - VM.right;
@@ -268,6 +272,33 @@ function render() {
       priceSvg.appendChild(el('path', { class: 'line-price', d: pd }));
       const lastP = pricePts[pricePts.length - 1];
       priceSvg.appendChild(el('circle', { class: 'end-dot', cx: xAt(lastP.i, pPlotW, PM.left), cy: priceYScale(lastP.v), r: 3.5, fill: 'var(--price-line)' }));
+    }
+
+    // --- second line on the same sub-chart: total combined shares held
+    // across the 8 tracked ETFs, on its own right-hand Y axis (a share
+    // count and a price are different units -- only the X axis is shared).
+    // Stored shares are raw 股; displayed as 張 (1 張 = 1,000 股, the
+    // standard board-lot size) to match how holdings are normally quoted.
+    const sharesPts = (stock.shares || [])
+      .map((v, i) => ({ i, v: v === null || v === undefined ? null : v / 1000 }))
+      .filter(p => p.v !== null);
+    if (sharesPts.length > 1) {
+      const sVals = sharesPts.map(p => p.v);
+      const sMin = Math.min(...sVals), sMax = Math.max(...sVals);
+      const sPad = (sMax - sMin) * 0.15 || Math.max(sMax * 0.02, 1);
+      const sharesYScale = v => PM.top + (sMax + sPad - v) / (sMax - sMin + 2 * sPad) * pPlotH;
+
+      [sMin, sMax].forEach(v => {
+        const t = el('text', { class: 'tick-label', x: W - PM.right + 6, y: sharesYScale(v) + 3, 'text-anchor': 'start', fill: 'var(--blue)' });
+        t.textContent = Math.round(v).toLocaleString();
+        priceSvg.appendChild(t);
+      });
+
+      const sd = sharesPts.map((p, k) => `${k === 0 ? 'M' : 'L'} ${xAt(p.i, pPlotW, PM.left)} ${sharesYScale(p.v)}`).join(' ');
+      priceSvg.appendChild(el('path', { class: 'line-shares', d: sd }));
+      sharesPts.forEach(p => {
+        priceSvg.appendChild(el('circle', { class: 'shares-dot', cx: xAt(p.i, pPlotW, PM.left), cy: sharesYScale(p.v), r: 2.2 }));
+      });
     }
 
     // --- variation-rate sub-chart (diverging bars around zero, signed-log
@@ -334,8 +365,10 @@ function render() {
       priceCrosshair.classList.add('show');
       varCrosshair.classList.add('show');
       const v = stock.variation_rate[idx];
+      const shares = (stock.shares || [])[idx];
       const rows = [
         ['收盤價', stock.close[idx], 2],
+        ['合計持股張數', shares === null || shares === undefined ? null : Math.round(shares / 1000).toLocaleString()],
         ['變動率', v === null ? null : v * 100, 2, '%'],
       ];
       showTooltip(evt, date, rows);

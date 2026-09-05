@@ -89,9 +89,9 @@ def build_series(holdings, prices, code, window=None):
     p = prices[prices["stock_code"] == code].drop_duplicates("trade_date").set_index("trade_date")["close"].sort_index()
     price_return = p.pct_change()
 
-    df = pd.DataFrame({"close": p, "variation_rate": variation_rate, "price_return": price_return}).dropna(
-        subset=["variation_rate", "price_return"], how="all"
-    )
+    df = pd.DataFrame(
+        {"close": p, "shares": combined, "variation_rate": variation_rate, "price_return": price_return}
+    ).dropna(subset=["variation_rate", "price_return"], how="all")
     df["price_return_lead1"] = df["price_return"].shift(-1)
     if window is not None:
         df = df.tail(window)

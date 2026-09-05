@@ -17,7 +17,7 @@ GET /assets/conf/app.json -> {"apiUrl": "https://www.capitalfund.com.tw/CFWeb", 
 
 from urllib.parse import urlsplit
 
-from scraper.utils import clean_number, get_session, parse_date
+from scraper.utils import clean_number, get_session, parse_date, today_taipei
 
 API_URL = "https://www.capitalfund.com.tw/CFWeb/api/etf/buyback"
 
@@ -47,7 +47,21 @@ def scrape(ticker, url):
     # looking before the site's ~21:00 daily refresh) -- date2 is the actual
     # PCF data date. Before the refresh, date1 != date2 and using date1
     # mislabels yesterday's still-current data as today's.
-    data_date = parse_date(pcf.get("date2")) or parse_date(pcf.get("date1"))
+    #
+    # But a PCF's own "as of" basis can never legitimately be in the
+    # future: a run that landed just after midnight Taipei time once
+    # observed date2 itself holding a stale forward-looking placeholder
+    # (e.g. "2026-09-07" fetched on "2026-09-05"), which got stored as a
+    # future data_date and threw off every date-keyed join against price
+    # data from then on. Reject either field if it's ahead of today.
+    today = today_taipei()
+    date2 = parse_date(pcf.get("date2"))
+    date1 = parse_date(pcf.get("date1"))
+    if date2 and date2 > today:
+        date2 = None
+    if date1 and date1 > today:
+        date1 = None
+    data_date = date2 or date1
 
     holdings = []
     for row in payload.get("stocks") or []:
