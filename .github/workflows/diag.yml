@@ -14,7 +14,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python deps
-        run: pip install -r analysis/requirements.txt
+        run: |
+          pip install -r analysis/requirements.txt
+          pip install -r requirements.txt
 
       - name: Dump capitalfund raw PCF date fields
         run: PYTHONPATH=. python analysis/_diag_capitalfund_dates.py
