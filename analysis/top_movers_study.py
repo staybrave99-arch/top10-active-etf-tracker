@@ -66,6 +66,18 @@ def fetch_all(conn_str):
     prices["trade_date"] = pd.to_datetime(prices["trade_date"])
     prices["close"] = prices["close"].astype(float)
     names = dict(zip(names_df["stock_code"], names_df["stock_name"]))
+
+    # A trade_date can never legitimately be in the future -- a bad PCF
+    # payload has produced a stray future-dated snapshot before (see
+    # capitalfund.py's date1/date2 guard), and once written nothing
+    # naturally overwrites or removes it. Left in, a stray future date
+    # sorts as the "newest" date and hijacks every latest-date pick
+    # downstream. Filtering here protects every consumer of fetch_all()
+    # in one place.
+    today = pd.Timestamp.now(tz="Asia/Taipei").normalize().tz_localize(None)
+    holdings = holdings[holdings["trade_date"] <= today]
+    prices = prices[prices["trade_date"] <= today]
+
     return holdings, prices, names
 
 
@@ -116,8 +128,18 @@ def compute_screens(holdings, prices, names):
     combined["variation_rate"] = combined.groupby("stock_code")["shares"].pct_change()
 
     all_dates = sorted(combined["trade_date"].unique())
-    latest_date = all_dates[-1]
-    last3_dates = all_dates[-3:]
+    # The most-recently-scraped date is still "settling": each fund site
+    # publishes its daily PCF at its own time, not synchronized with the
+    # fixed ~22:00 scrape window, so a fund that hasn't refreshed yet
+    # that night is simply absent from this date's combined sum -- making
+    # a stock it holds look like it was sold, even though nothing
+    # happened (the fund's site catches up and the true total reappears
+    # within a day, confirmed against production data). Reporting on the
+    # date before the freshest one instead means every fund has had a
+    # full day-night cycle to catch up by the time we treat it as final.
+    settled_dates = all_dates[:-1] if len(all_dates) > 1 else all_dates
+    latest_date = settled_dates[-1]
+    last3_dates = settled_dates[-3:]
 
     latest = combined[(combined["trade_date"] == latest_date) & combined["variation_rate"].notna()]
     buy_candidates_today = latest[latest["variation_rate"] > MOVEMENT_THRESHOLD]

@@ -84,7 +84,12 @@ def shared_chart_axis(holdings, prices, window=CHART_WINDOW_DAYS):
     dropped from the shared window.
     """
     all_dates = sorted(set(holdings["trade_date"].unique()) | set(prices["trade_date"].unique()))
-    return all_dates[-window:]
+    # Match compute_screens()'s settled-date logic (top_movers_study.py):
+    # the freshest date is still settling across fund sites, so exclude it
+    # here too -- otherwise the chart's last plotted day could show a
+    # phantom dip from a fund that simply hadn't refreshed yet.
+    settled_dates = all_dates[:-1] if len(all_dates) > 1 else all_dates
+    return settled_dates[-window:]
 
 
 def build_series(holdings, prices, code, window=None, date_axis=None):
