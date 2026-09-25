@@ -10,11 +10,16 @@ from scraper.utils import now_taipei, today_taipei
 
 # The scrape is meant to run once daily after every fund site has posted its
 # real end-of-day PCF (observed ~21:00 Asia/Taipei) -- GitHub Actions' cron
-# already targets 22:00. Running well outside that window doesn't corrupt
-# data (capitalfund.com.tw's date2 field is now used specifically so it
-# can't), but it can mean some sites haven't refreshed yet, so flag it
-# loudly rather than silently saving early/stale-looking data.
-SCRAPE_WINDOW_START = (22, 0)
+# targets 23:00 (moved from the original 22:00 so more sites have already
+# refreshed by scrape time; some were still showing yesterday's PCF at
+# 22:00, which briefly under-counted their holdings in the cross-ETF
+# variation-rate calc until the site caught up the next day -- see
+# analysis/top_movers_study.py's settled-date fix). Running well outside
+# this window doesn't corrupt data (capitalfund.com.tw's date2 field is
+# used specifically so it can't), but it can mean some sites haven't
+# refreshed yet, so flag it loudly rather than silently saving
+# early/stale-looking data.
+SCRAPE_WINDOW_START = (23, 0)
 SCRAPE_WINDOW_END = (23, 50)
 
 

@@ -2,8 +2,14 @@ name: Daily ETF Scrape
 
 on:
   schedule:
-    # 22:00 Asia/Taipei (UTC+8) = 14:00 UTC, Monday-Friday only
-    - cron: "0 14 * * 1-5"
+    # 23:00 Asia/Taipei (UTC+8) = 15:00 UTC, Monday-Friday only. Moved an
+    # hour later than the original 22:00 so more fund sites have already
+    # refreshed their daily PCF by scrape time (see
+    # analysis/top_movers_study.py's settled-date fix for the underlying
+    # cross-site publish-timing issue this is mitigating) -- while still
+    # leaving real margin before midnight even given this workflow's own
+    # history of GH Actions cron drift up to ~2h4m late.
+    - cron: "0 15 * * 1-5"
   workflow_dispatch: {}
 
 jobs:
