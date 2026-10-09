@@ -40,6 +40,13 @@ jobs:
           export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
           python analysis/diag.py
 
+      - name: Delete stray future-dated snapshot
+        env:
+          DATABASE_URL_RAW: ${{ secrets.DATABASE_URL }}
+        run: |
+          export DATABASE_URL=$(python -c "import os,re; s=os.environ['DATABASE_URL_RAW'].strip().lstrip('﻿'); print(re.sub(r'@[^/]+/', '@localhost:15432/', s))")
+          python analysis/fix_future_snapshot.py
+
       - name: Stop DB proxy
         if: always()
         run: kill "$(cat proxy.pid)" 2>/dev/null || true
