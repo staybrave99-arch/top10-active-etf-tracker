@@ -97,6 +97,33 @@ def save_etf_snapshot(conn, ticker, etf_name, data_date, net_asset, holdings):
     return snapshot_id
 
 
+def get_latest_snapshot_holdings(conn, ticker):
+    """Most recent snapshot on file for this ticker, as {stock_code: shares}
+    plus its data_date. Lets a caller detect a scrape that returned no
+    real new information -- e.g. a holiday/non-trading-day run, or any
+    day a fund site simply didn't publish a fresh PCF -- so it can skip
+    filing a duplicate "trading day" with identical content under a
+    different date, which would otherwise skew every day-over-day
+    comparison downstream (variation_rate, buy/sell streaks) even though
+    nothing actually happened. Returns None if this ticker has no
+    snapshot on file yet.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, data_date FROM etf_snapshot WHERE ticker = %s ORDER BY data_date DESC LIMIT 1",
+            (ticker,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        snapshot_id, data_date = row
+
+        cur.execute("SELECT stock_code, shares FROM etf_holding WHERE snapshot_id = %s", (snapshot_id,))
+        holdings = {code: shares for code, shares in cur.fetchall()}
+
+    return {"data_date": data_date, "holdings": holdings}
+
+
 def save_stock_prices(conn, trade_date, rows):
     """rows: iterable of (stock_code, price, change_pct)."""
     rows = list(rows)

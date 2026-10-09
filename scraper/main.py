@@ -3,7 +3,7 @@ import sys
 import time
 from urllib.parse import urlparse
 
-from scraper.db import get_conn, init_schema, save_etf_snapshot, save_stock_prices
+from scraper.db import get_conn, get_latest_snapshot_holdings, init_schema, save_etf_snapshot, save_stock_prices
 from scraper.prices import fetch_price_lookup
 from scraper.sites import capitalfund, cathay, ezmoney, fhtrust, fsit, nomura
 from scraper.utils import expected_trade_date, now_taipei, today_taipei
@@ -127,9 +127,7 @@ def main():
             # pushed a nominally-23:00 run past midnight by itself (once
             # by ~5.5h) -- either way, clamping to expected_trade_date()
             # (not today_taipei(), which would itself already be
-            # "tomorrow" in both cases) recovers the correct trade date
-            # without needing to inspect or compare the payload's
-            # content at all.
+            # "tomorrow" in both cases) recovers the correct trade date.
             expected = expected_trade_date()
             if data_date > expected:
                 print(
@@ -139,14 +137,38 @@ def main():
                     f"trading day)"
                 )
                 data_date = expected
-            snapshot_id = save_etf_snapshot(
-                conn, ticker, name, data_date, result["net_asset"], result["holdings"]
-            )
-            print(
-                f"[SAVED] {ticker} snapshot_id={snapshot_id} "
-                f"data_date={data_date} net_asset={result['net_asset']} "
-                f"holdings={len(result['holdings'])}"
-            )
+
+            # Second, separate guard: expected_trade_date() only fixes
+            # which date a real new PCF belongs to -- it doesn't know
+            # whether this scrape actually ran on a non-trading day
+            # (a holiday, or anything else where the site simply had no
+            # fresh PCF to publish). On that kind of day, the scrape
+            # still succeeds and returns last trading day's holdings
+            # again, just now labeled under a new date. Saving that as
+            # a distinct snapshot would create a duplicate "trading day"
+            # with identical content, which skews every day-over-day
+            # comparison downstream (variation_rate, buy/sell streaks)
+            # even though nothing changed. So before saving under a
+            # *different* date than this ticker's latest snapshot, check
+            # whether the holdings are actually unchanged -- if so,
+            # there's nothing new to record.
+            latest = get_latest_snapshot_holdings(conn, ticker)
+            new_holdings = {h["stock_code"]: h["shares"] for h in result["holdings"]}
+            if latest is not None and latest["data_date"] != data_date and latest["holdings"] == new_holdings:
+                print(
+                    f"[SKIP] {ticker}: holdings unchanged from the {latest['data_date']} "
+                    f"snapshot -- no fresh PCF (likely a non-trading day), not saving a "
+                    f"duplicate under {data_date}"
+                )
+            else:
+                snapshot_id = save_etf_snapshot(
+                    conn, ticker, name, data_date, result["net_asset"], result["holdings"]
+                )
+                print(
+                    f"[SAVED] {ticker} snapshot_id={snapshot_id} "
+                    f"data_date={data_date} net_asset={result['net_asset']} "
+                    f"holdings={len(result['holdings'])}"
+                )
         except Exception as exc:
             print(f"[ERROR] {ticker} {name}: {exc}")
             failures.append(ticker)
