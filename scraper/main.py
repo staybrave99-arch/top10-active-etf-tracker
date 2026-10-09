@@ -108,6 +108,19 @@ def main():
             attach_prices(result["holdings"], price_lookup)
             held_codes.update(h["stock_code"] for h in result["holdings"])
             data_date = result["data_date"] or today_taipei()
+            # Last-resort guard: a data_date can never legitimately be in
+            # the future. Each parser already tries to reject this itself
+            # (e.g. capitalfund.py's date1/date2-vs-today check), but
+            # that's proven not fully reliable -- a future-dated snapshot
+            # from 00982A/00992A has recurred more than once despite it
+            # (see analysis notes), each time hijacking every
+            # latest-date pick downstream until manually deleted. Catching
+            # it here, once, for every parser, means a bad upstream value
+            # never reaches the database at all.
+            today = today_taipei()
+            if data_date > today:
+                print(f"[WARN] {ticker}: parser returned data_date={data_date} ahead of today={today}, clamping to today")
+                data_date = today
             snapshot_id = save_etf_snapshot(
                 conn, ticker, name, data_date, result["net_asset"], result["holdings"]
             )
