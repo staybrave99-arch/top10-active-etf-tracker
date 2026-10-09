@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import requests
@@ -84,3 +84,28 @@ def now_taipei():
 
 def today_taipei():
     return now_taipei().date()
+
+
+def expected_trade_date(now=None, boundary_hour=22):
+    """The latest trading date whose end-of-day PCF a scrape happening
+    right now could plausibly already have access to.
+
+    Each fund site publishes its daily PCF around ~21:00-22:00 Asia/
+    Taipei for that same calendar day, so a scrape anywhere between
+    today's boundary_hour and tomorrow's boundary_hour is scraping
+    "today"'s PCF -- no matter what calendar date the wall clock has
+    rolled over to by the time it actually runs. Some sites have been
+    observed advancing their own *displayed* date label to the next
+    trading day right after midnight even though the PCF content is
+    unchanged (capitalfund.com.tw, confirmed directly against its real
+    holdings data) -- using hour-of-day rather than the site's own date
+    label, or our own calendar date, means callers can clamp a result
+    down to this and get the right answer even after that happens, and
+    even after GH Actions cron drift pushes a nominally-23:00 run past
+    midnight (observed up to ~5.5h drift once).
+    """
+    if now is None:
+        now = now_taipei()
+    if now.hour >= boundary_hour:
+        return now.date()
+    return now.date() - timedelta(days=1)

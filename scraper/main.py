@@ -3,10 +3,10 @@ import sys
 import time
 from urllib.parse import urlparse
 
-from scraper.db import get_conn, get_latest_snapshot_holdings, init_schema, save_etf_snapshot, save_stock_prices
+from scraper.db import get_conn, init_schema, save_etf_snapshot, save_stock_prices
 from scraper.prices import fetch_price_lookup
 from scraper.sites import capitalfund, cathay, ezmoney, fhtrust, fsit, nomura
-from scraper.utils import now_taipei, today_taipei
+from scraper.utils import expected_trade_date, now_taipei, today_taipei
 
 # The scrape is meant to run once daily after every fund site has posted its
 # real end-of-day PCF (observed ~21:00 Asia/Taipei) -- GitHub Actions' cron
@@ -108,59 +108,45 @@ def main():
             attach_prices(result["holdings"], price_lookup)
             held_codes.update(h["stock_code"] for h in result["holdings"])
             data_date = result["data_date"] or today_taipei()
-            # Last-resort guard: a data_date can never legitimately be in
-            # the future. Each parser already tries to reject this itself
-            # (e.g. capitalfund.py's date1/date2-vs-today check), but
-            # that's proven not fully reliable -- a future-dated snapshot
-            # from 00982A/00992A has recurred more than once despite it
-            # (see analysis notes), each time hijacking every latest-date
-            # pick downstream until manually deleted.
+            # Last-resort guard: a data_date can never legitimately be
+            # later than the trade date this scrape window could
+            # plausibly already have a PCF for. Each parser already
+            # tries to reject an outright future date itself (e.g.
+            # capitalfund.py's date1/date2-vs-today check), but that's
+            # proven not fully reliable -- a future-dated snapshot from
+            # 00982A/00992A has recurred more than once despite it (see
+            # analysis notes), each time hijacking every latest-date pick
+            # downstream until manually deleted.
             #
-            # Simply clamping to today and saving would lose information
-            # when this happens, though: capitalfund.com.tw has been
-            # observed advancing its displayed date label to the next
-            # trading day right after midnight while the PCF content
-            # underneath is still the same as the last real snapshot --
-            # clamp-and-save in that case would overwrite nothing (today
-            # has no row yet) while leaving the actual holdings for the
-            # real trading date unrepresented by any date at all. So
-            # check content against the latest snapshot on file first:
-            # if shares are unchanged, there's nothing new to record, so
-            # skip saving rather than filing a duplicate under a wrong
-            # date. Only clamp-and-save when the content has genuinely
-            # changed and the real trading date can't be recovered from
-            # the payload alone.
-            today = today_taipei()
-            should_save = True
-            if data_date > today:
-                latest = get_latest_snapshot_holdings(conn, ticker)
-                new_holdings = {h["stock_code"]: h["shares"] for h in result["holdings"]}
-                if latest is not None and latest["holdings"] == new_holdings:
-                    print(
-                        f"[SKIP] {ticker}: parser returned data_date={data_date} ahead of "
-                        f"today={today}, but holdings match the existing {latest['data_date']} "
-                        f"snapshot exactly -- site has just advanced its date label early with "
-                        f"no real new PCF yet"
-                    )
-                    should_save = False
-                else:
-                    print(
-                        f"[WARN] {ticker}: parser returned data_date={data_date} ahead of "
-                        f"today={today} with holdings that differ from the last known snapshot "
-                        f"-- clamping to today (the real trading date for this content can't be "
-                        f"determined from the payload alone)"
-                    )
-                    data_date = today
-
-            if should_save:
-                snapshot_id = save_etf_snapshot(
-                    conn, ticker, name, data_date, result["net_asset"], result["holdings"]
-                )
+            # expected_trade_date() pins the cutoff to hour-of-day
+            # (~22:00) rather than calendar date, which is what makes
+            # this reliable: capitalfund.com.tw has been observed
+            # advancing its *displayed* date label to the next trading
+            # day right after midnight while the PCF content underneath
+            # is unchanged, and separately GH Actions cron drift has
+            # pushed a nominally-23:00 run past midnight by itself (once
+            # by ~5.5h) -- either way, clamping to expected_trade_date()
+            # (not today_taipei(), which would itself already be
+            # "tomorrow" in both cases) recovers the correct trade date
+            # without needing to inspect or compare the payload's
+            # content at all.
+            expected = expected_trade_date()
+            if data_date > expected:
                 print(
-                    f"[SAVED] {ticker} snapshot_id={snapshot_id} "
-                    f"data_date={data_date} net_asset={result['net_asset']} "
-                    f"holdings={len(result['holdings'])}"
+                    f"[WARN] {ticker}: parser returned data_date={data_date}, ahead of this "
+                    f"scrape window's expected trade date {expected} -- clamping down (the "
+                    f"site has likely already advanced its displayed date label to the next "
+                    f"trading day)"
                 )
+                data_date = expected
+            snapshot_id = save_etf_snapshot(
+                conn, ticker, name, data_date, result["net_asset"], result["holdings"]
+            )
+            print(
+                f"[SAVED] {ticker} snapshot_id={snapshot_id} "
+                f"data_date={data_date} net_asset={result['net_asset']} "
+                f"holdings={len(result['holdings'])}"
+            )
         except Exception as exc:
             print(f"[ERROR] {ticker} {name}: {exc}")
             failures.append(ticker)
