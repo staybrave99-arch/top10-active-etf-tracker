@@ -2,15 +2,22 @@ name: Daily ETF Scrape
 
 on:
   schedule:
-    # 23:00 Asia/Taipei (UTC+8) = 15:00 UTC, Monday-Friday only. Moved an
-    # hour later than the original 22:00 so more fund sites have already
-    # refreshed their daily PCF by scrape time (see
-    # analysis/top_movers_study.py's settled-date fix for the underlying
-    # cross-site publish-timing issue this is mitigating) -- while still
-    # leaving real margin before midnight even given this workflow's own
-    # history of GH Actions cron drift up to ~2h4m late.
-    - cron: "0 15 * * 1-5"
+    # One run per trade date: 04:00 Asia/Taipei the following morning
+    # (Tue-Sat Taipei = 20:00 UTC Mon-Fri), long after every fund site has
+    # posted that day's PCF (~21:00). A fund that still can't be read is
+    # stood in for by its previous snapshot in the report (no change that
+    # day) and flagged in the ntfy message; the next morning's real data
+    # corrects it. The scraper refuses to run between 13:00 and 22:00, so
+    # a run that GH Actions drifts by hours can't pick up the next PCF.
+    - cron: "0 20 * * 1-5"  # 04:00 Asia/Taipei
   workflow_dispatch: {}
+
+# Queue overlapping runs (e.g. a manual re-run while the scheduled one is
+# still going) instead of running them at once: one fly.io machine, and
+# both would push docs/top_movers.html.
+concurrency:
+  group: daily-scrape
+  cancel-in-progress: false
 
 jobs:
   scrape:
@@ -66,6 +73,10 @@ jobs:
 
   report:
     needs: scrape
+    # Run even when some fund couldn't be read (scrape job exits 1): the
+    # report stands in that fund's previous snapshot and flags it in the
+    # ntfy message. Unchanged page -> no commit, no ntfy.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

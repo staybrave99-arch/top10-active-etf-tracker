@@ -34,7 +34,7 @@ import os
 import pandas as pd
 import psycopg2
 
-from correlation_study import build_series, shared_chart_axis
+from correlation_study import build_series, fund_flow, missing_fund_days, shared_chart_axis
 
 LIQUIDATION_THRESHOLD = -0.95  # sell variation rate more extreme than this -> "出清"
 MOVEMENT_THRESHOLD = 0.10  # |rate| must exceed this to be listed in any screen at all
@@ -44,7 +44,7 @@ def fetch_all(conn_str):
     conn = psycopg2.connect(conn_str)
     holdings = pd.read_sql(
         """
-        SELECT h.stock_code, s.data_date AS trade_date, h.shares
+        SELECT s.ticker, h.stock_code, s.data_date AS trade_date, h.shares
         FROM etf_holding h
         JOIN etf_snapshot s ON s.id = h.snapshot_id
         """,
@@ -82,13 +82,18 @@ def fetch_all(conn_str):
 
 
 def _three_day_streak(g, last3_dates):
-    """g: one stock's (trade_date, shares, variation_rate) rows, any order.
-    last3_dates: the dataset's own [D-2, D-1, D] trading dates (ascending)
-    -- NOT whatever 3 rows this stock last happened to have. A stock
-    missing a variation_rate on any one of those exact 3 dates (a gap in
-    its own disclosure, e.g. it dropped out of a fund's reported top-N
-    for a day) does not count as "continuous," even if it has 3 valid
-    rates somewhere earlier in its history.
+    """g: one stock's fund_flow() rows (trade_date, variation_rate), any
+    order. last3_dates: the dataset's own [D-2, D-1, D] trading dates
+    (ascending) -- NOT whatever 3 rows this stock last happened to have.
+    A stock missing a variation_rate on any one of those exact 3 dates
+    (e.g. a brand-new position, or no fund holding it reported that day)
+    does not count as "continuous", even if it has 3 valid rates
+    somewhere earlier in its history.
+
+    Total rate = compounded daily rates, prod(1 + r) - 1. With complete
+    data this telescopes to exactly (shares_end - shares_before_streak) /
+    shares_before_streak; with a fund missing a day it stays correct
+    because each daily rate already only compares funds that reported.
     """
     by_date = g.set_index("trade_date")
     if not all(d in by_date.index for d in last3_dates):
@@ -102,18 +107,7 @@ def _three_day_streak(g, last3_dates):
         direction = "sell"
     else:
         return None
-
-    g = g.sort_values("trade_date").reset_index(drop=True)
-    dates_sorted = g["trade_date"].tolist()
-    shares_sorted = g["shares"].tolist()
-    start_pos = dates_sorted.index(last3_dates[0])
-    if start_pos == 0:
-        return None
-    start_shares = shares_sorted[start_pos - 1]
-    end_shares = by_date.loc[last3_dates[-1], "shares"]
-    if not start_shares:
-        return None
-    return direction, (end_shares - start_shares) / start_shares
+    return direction, float((1 + rates).prod() - 1)
 
 
 def compute_screens(holdings, prices, names):
@@ -121,34 +115,37 @@ def compute_screens(holdings, prices, names):
     latest_date, last3_dates, top_buy_today, top_sell_today,
     top_buy_streak, top_sell_streak (all DataFrames), tags_by_code
     (stock_code -> list[str]), and selected (deduplicated stock_code list,
-    in a stable buy-today/sell-today/buy-streak/sell-streak order).
+    in a stable buy-today/sell-today/buy-streak/sell-streak order), and
+    flow (the fund_flow() table, for passing on to build_series()), and
+    missing_funds ({date: [ticker, ...]} for each of last3_dates that had
+    a fund missing -- its previous snapshot stood in for that day).
     """
-    combined = holdings.groupby(["stock_code", "trade_date"])["shares"].sum().reset_index()
-    combined = combined.sort_values(["stock_code", "trade_date"])
-    combined["variation_rate"] = combined.groupby("stock_code")["shares"].pct_change()
+    flow = fund_flow(holdings)
 
-    all_dates = sorted(combined["trade_date"].unique())
-    # The most-recently-scraped date is still "settling": each fund site
-    # publishes its daily PCF at its own time, not synchronized with the
-    # fixed ~22:00 scrape window, so a fund that hasn't refreshed yet
-    # that night is simply absent from this date's combined sum -- making
-    # a stock it holds look like it was sold, even though nothing
-    # happened (the fund's site catches up and the true total reappears
-    # within a day, confirmed against production data). Reporting on the
-    # date before the freshest one instead means every fund has had a
-    # full day-night cycle to catch up by the time we treat it as final.
-    settled_dates = all_dates[:-1] if len(all_dates) > 1 else all_dates
-    latest_date = settled_dates[-1]
-    last3_dates = settled_dates[-3:]
+    # One scrape per trade date, at 04:00 the next morning (every fund site
+    # has long since posted that day's PCF), so the freshest date is final
+    # and is reported straight away. A fund that couldn't be read for it
+    # is stood in for by its previous snapshot in fund_flow() ("no change
+    # that day") and flagged via missing_funds below.
+    all_dates = sorted(holdings["trade_date"].unique())
+    latest_date = all_dates[-1]
+    last3_dates = all_dates[-3:]
 
-    latest = combined[(combined["trade_date"] == latest_date) & combined["variation_rate"].notna()]
+    latest = flow[(flow["trade_date"] == latest_date) & flow["variation_rate"].notna()]
     buy_candidates_today = latest[latest["variation_rate"] > MOVEMENT_THRESHOLD]
     sell_candidates_today = latest[latest["variation_rate"] < -MOVEMENT_THRESHOLD]
     top_buy_today = buy_candidates_today.sort_values("variation_rate", ascending=False).head(5)
     top_sell_today = sell_candidates_today.sort_values("variation_rate", ascending=True).head(5)
 
+    missing = missing_fund_days(holdings[["ticker", "trade_date"]])
+    missing_funds = {
+        d: sorted(missing.loc[missing["trade_date"] == d, "ticker"])
+        for d in last3_dates
+        if (missing["trade_date"] == d).any()
+    }
+
     streak_rows = []
-    for code, g in combined.groupby("stock_code"):
+    for code, g in flow.groupby("stock_code"):
         info = _three_day_streak(g, last3_dates)
         if info is None:
             continue
@@ -193,6 +190,8 @@ def compute_screens(holdings, prices, names):
         "top_sell_streak": top_sell_streak,
         "tags_by_code": tags_by_code,
         "selected": selected,
+        "flow": flow,
+        "missing_funds": missing_funds,
     }
 
 
@@ -230,7 +229,7 @@ def main():
     chart_axis = shared_chart_axis(holdings, prices)
     result = {"stocks": []}
     for code in selected:
-        df = build_series(holdings, prices, code, date_axis=chart_axis)
+        df = build_series(holdings, prices, code, date_axis=chart_axis, flow=screens["flow"])
 
         def col(name_, digits):
             return [None if pd.isna(v) else round(float(v), digits) for v in df[name_]]

@@ -13,20 +13,21 @@ import os
 
 import pandas as pd
 
-from correlation_study import DEFAULT_STOCKS, build_series, fetch, shared_chart_axis
+from correlation_study import DEFAULT_STOCKS, build_series, fetch, fund_flow, shared_chart_axis
 
 
 def main():
     conn_str = os.environ["DATABASE_URL"].strip().lstrip("﻿")
     stocks = DEFAULT_STOCKS
 
-    holdings, prices = fetch(conn_str, stocks.keys())
+    holdings, prices, snapshots = fetch(conn_str, stocks.keys())
     print(f"holdings rows: {len(holdings)}, price rows: {len(prices)}")
+    flow = fund_flow(holdings, snapshots)
 
     chart_axis = shared_chart_axis(holdings, prices)
     result = {"stocks": []}
     for code, name in stocks.items():
-        df = build_series(holdings, prices, code, date_axis=chart_axis)
+        df = build_series(holdings, prices, code, date_axis=chart_axis, flow=flow)
         print(f"{code} {name}: {len(df)} days")
 
         dates = [d.strftime("%Y-%m-%d") for d in df.index]

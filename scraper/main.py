@@ -3,37 +3,37 @@ import sys
 import time
 from urllib.parse import urlparse
 
-from scraper.db import get_conn, init_schema, save_etf_snapshot, save_stock_prices
+from scraper.db import (
+    get_conn,
+    get_held_codes,
+    get_snapshot_tickers,
+    init_schema,
+    save_etf_snapshot,
+    save_stock_prices,
+)
 from scraper.prices import fetch_price_lookup
 from scraper.sites import capitalfund, cathay, ezmoney, fhtrust, fsit, nomura
-from scraper.utils import expected_trade_date, now_taipei, today_taipei
+from scraper.utils import expected_trade_date, now_taipei
 
-# The scrape is meant to run once daily after every fund site has posted its
-# real end-of-day PCF (observed ~21:00 Asia/Taipei) -- GitHub Actions' cron
-# targets 23:00 (moved from the original 22:00 so more sites have already
-# refreshed by scrape time; some were still showing yesterday's PCF at
-# 22:00, which briefly under-counted their holdings in the cross-ETF
-# variation-rate calc until the site caught up the next day -- see
-# analysis/top_movers_study.py's settled-date fix). Running well outside
-# this window doesn't corrupt data (capitalfund.com.tw's date2 field is
-# used specifically so it can't), but it can mean some sites haven't
-# refreshed yet, so flag it loudly rather than silently saving
-# early/stale-looking data.
-SCRAPE_WINDOW_START = (23, 0)
-SCRAPE_WINDOW_END = (23, 50)
-
-
-def _check_scrape_window():
-    now = now_taipei()
-    start = now.replace(hour=SCRAPE_WINDOW_START[0], minute=SCRAPE_WINDOW_START[1], second=0, microsecond=0)
-    end = now.replace(hour=SCRAPE_WINDOW_END[0], minute=SCRAPE_WINDOW_END[1], second=0, microsecond=0)
-    if not (start <= now <= end):
-        print(
-            f"[WARN] running at {now.strftime('%Y-%m-%d %H:%M %Z')}, outside the intended "
-            f"{SCRAPE_WINDOW_START[0]:02d}:{SCRAPE_WINDOW_START[1]:02d}-"
-            f"{SCRAPE_WINDOW_END[0]:02d}:{SCRAPE_WINDOW_END[1]:02d} Asia/Taipei scrape window -- "
-            f"some fund sites may not have posted today's real data yet"
-        )
+# Run schedule (.github/workflows/scrape.yml): once per trade date, at
+# 04:00 Asia/Taipei the next morning. The run works out the trade date it
+# is scraping for (expected_trade_date(), which treats 22:00 as the day
+# boundary, so 04:00 files under the previous day), skips every fund that
+# already has a snapshot for that date, and scrapes the rest -- normally
+# all of them; a manual re-run (workflow_dispatch) only fills the gaps. A
+# fund that still can't be read is NOT stood in for here: nothing fake is
+# written to the database; the report does the stand-in (see
+# analysis/correlation_study.fund_flow()).
+#
+# Allowed window: from 22:00 (fund sites have posted that day's PCF by
+# ~21:00) until 13:00 the next day. The cutoff leaves a wide margin before
+# the next evening's PCF goes up: a run at, say, 21:30 the next day would
+# still compute the previous trade date but could already be seeing the
+# new PCF, filing it under the wrong day. GH Actions cron can drift by
+# hours (up to ~5.5h seen), so a drifted run landing past the cutoff skips
+# itself instead of risking that.
+RUN_WINDOW_START_HOUR = 22
+RUN_WINDOW_END_HOUR = 13
 
 DISPATCH = {
     "www.ezmoney.com.tw": ezmoney.scrape,
@@ -53,6 +53,20 @@ DISPATCH = {
 SKIP_TICKERS = {"00991A"}
 
 
+def in_run_window(now):
+    return now.hour >= RUN_WINDOW_START_HOUR or now.hour < RUN_WINDOW_END_HOUR
+
+
+def plan_tickers(rows, already_saved, skip=frozenset()):
+    """Rows from the ETF list still to scrape: not permanently skipped and
+    without a snapshot for the target date yet."""
+    return [
+        row
+        for row in rows
+        if row["代號"].strip() not in skip and row["代號"].strip() not in already_saved
+    ]
+
+
 def load_etf_list(csv_path):
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
         return list(csv.DictReader(f))
@@ -66,7 +80,14 @@ def attach_prices(holdings, price_lookup):
 
 
 def main():
-    _check_scrape_window()
+    now = now_taipei()
+    if not in_run_window(now):
+        print(
+            f"[SKIP] {now.strftime('%Y-%m-%d %H:%M %Z')} is outside the "
+            f"{RUN_WINDOW_START_HOUR:02d}:00-{RUN_WINDOW_END_HOUR:02d}:00 Asia/Taipei run window "
+            f"-- not scraping (the next PCF may already be up)"
+        )
+        return
 
     csv_path = sys.argv[1] if len(sys.argv) > 1 else "Top10ActiveETF.csv"
     rows = load_etf_list(csv_path)
@@ -82,17 +103,46 @@ def main():
         print(f"[PRICES] failed to fetch price data, continuing without it: {exc}")
         price_lookup, price_trade_date = {}, None
 
+    # The trade date this run is scraping for. expected_trade_date() pins
+    # the cutoff to hour-of-day (22:00) rather than calendar date:
+    # capitalfund.com.tw has been observed advancing its *displayed* date
+    # label to the next trading day right after midnight while the PCF
+    # content underneath is unchanged, and the scheduled run is after
+    # midnight by design -- either way the right trade date is still the
+    # previous day's.
+    #
+    # But hour-of-day alone can't tell a holiday weekday from a real
+    # trading day. TWSE/TPEx's daily-quote endpoints keep serving the last
+    # session's quotes on non-trading weekdays (see fetch_price_lookup()),
+    # so price_trade_date is the exchange calendar's own answer to "what's
+    # the most recent real trading day" -- trust it over our own guess
+    # whenever it's earlier. (An earlier content-comparison approach was
+    # tried and reverted: it couldn't tell a stale duplicate from a
+    # low-turnover ETF that genuinely made no changes for a day.)
+    expected = expected_trade_date(now)
+    if price_trade_date and price_trade_date < expected:
+        expected = price_trade_date
+
+    already_saved = get_snapshot_tickers(conn, expected)
+    todo = plan_tickers(rows, already_saved, SKIP_TICKERS)
+    for row in rows:
+        ticker = row["代號"].strip()
+        if ticker in SKIP_TICKERS:
+            print(f"[SKIP] {ticker} {row['ETF名稱'].strip()}: known-blocked, see SKIP_TICKERS")
+        elif ticker in already_saved:
+            print(f"[HAVE] {ticker} {row['ETF名稱'].strip()}: already saved for {expected}")
+    if todo:
+        print(f"[PLAN] scraping {len(todo)} fund(s) for {expected}: {[r['代號'].strip() for r in todo]}")
+    else:
+        print(f"[PLAN] every fund already has a snapshot for {expected}, nothing to scrape")
+
     failures = []
     held_codes = set()
-    for row in rows:
+    for row in todo:
         ticker = row["代號"].strip()
         name = row["ETF名稱"].strip()
         url = row["URL"].strip()
         domain = urlparse(url).netloc
-
-        if ticker in SKIP_TICKERS:
-            print(f"[SKIP] {ticker} {name}: known-blocked, see SKIP_TICKERS")
-            continue
 
         scrape_fn = DISPATCH.get(domain)
         if scrape_fn is None:
@@ -107,47 +157,16 @@ def main():
                 raise ValueError("no holdings parsed")
             attach_prices(result["holdings"], price_lookup)
             held_codes.update(h["stock_code"] for h in result["holdings"])
-            data_date = result["data_date"] or today_taipei()
+            # Fallback when a parser couldn't read the site's own date:
+            # the target trade date, not the wall-clock date (which is
+            # already "tomorrow" for any run after midnight).
+            data_date = result["data_date"] or expected
             # Last-resort guard: a data_date can never legitimately be
-            # later than the trade date this scrape window could
-            # plausibly already have a PCF for. Each parser already
-            # tries to reject an outright future date itself (e.g.
-            # capitalfund.py's date1/date2-vs-today check), but that's
-            # proven not fully reliable -- a future-dated snapshot from
-            # 00982A/00992A has recurred more than once despite it (see
-            # analysis notes), each time hijacking every latest-date pick
-            # downstream until manually deleted.
-            #
-            # expected_trade_date() pins the cutoff to hour-of-day
-            # (~22:00) rather than calendar date, which is what makes
-            # this reliable: capitalfund.com.tw has been observed
-            # advancing its *displayed* date label to the next trading
-            # day right after midnight while the PCF content underneath
-            # is unchanged, and separately GH Actions cron drift has
-            # pushed a nominally-23:00 run past midnight by itself (once
-            # by ~5.5h) -- either way, clamping to expected_trade_date()
-            # (not today_taipei(), which would itself already be
-            # "tomorrow" in both cases) recovers the correct trade date.
-            #
-            # But hour-of-day alone can't tell a holiday weekday from a
-            # real trading day -- e.g. a scrape running at 23:xx on a
-            # national holiday would compute "today" as the expected
-            # date even though no fund published anything new (the
-            # scrape would just pick up the last real trading day's PCF
-            # again, mislabeled). TWSE/TPEx's own daily-quote endpoints
-            # already solve exactly this (see fetch_price_lookup()'s
-            # docstring: they keep serving the last session's quotes on
-            # non-trading weekdays), so price_trade_date is the exchange
-            # calendar's own answer to "what's the most recent real
-            # trading day" -- trust it over our own guess whenever it's
-            # earlier. An earlier content-comparison approach was tried
-            # and reverted: it couldn't distinguish "stale duplicate" from
-            # a low-turnover ETF that genuinely made no changes for a day
-            # or more (observed repeatedly in production data), which
-            # would have silently dropped real trading days.
-            expected = expected_trade_date()
-            if price_trade_date and price_trade_date < expected:
-                expected = price_trade_date
+            # later than the trade date this run is scraping for. Each
+            # parser already tries to reject an outright future date
+            # itself (e.g. capitalfund.py's date1/date2-vs-today check),
+            # but that's proven not fully reliable -- a future-dated
+            # snapshot from 00982A/00992A has recurred more than once.
             if data_date > expected:
                 print(
                     f"[WARN] {ticker}: parser returned data_date={data_date}, ahead of the "
@@ -163,26 +182,36 @@ def main():
                 f"data_date={data_date} net_asset={result['net_asset']} "
                 f"holdings={len(result['holdings'])}"
             )
+            if data_date < expected:
+                # The site is still showing an older PCF (not refreshed
+                # yet). Saved under its own older date as before, but this
+                # fund is still missing for `expected` -- report it so the
+                # run's status says so (the report stands in its previous
+                # snapshot and flags it in ntfy).
+                print(f"[STALE] {ticker}: site still shows {data_date}, not {expected} yet")
+                failures.append(ticker)
         except Exception as exc:
             print(f"[ERROR] {ticker} {name}: {exc}")
             failures.append(ticker)
 
         time.sleep(1.5)
 
-    if held_codes and price_trade_date:
-        price_rows = [
-            (code, *price_lookup[code]) for code in held_codes if code in price_lookup
-        ]
+    if price_trade_date:
+        # Every stock held that day, not just the funds scraped in this
+        # run -- a manual re-run also fills in prices an earlier run
+        # couldn't fetch. Upsert, so repeating is harmless.
+        codes = held_codes | get_held_codes(conn, price_trade_date)
+        price_rows = [(code, *price_lookup[code]) for code in codes if code in price_lookup]
         save_stock_prices(conn, price_trade_date, price_rows)
         print(f"[PRICES] saved {len(price_rows)} stock_price rows for {price_trade_date}")
 
     conn.close()
 
     if failures:
-        print(f"[DONE] finished with {len(failures)} failure(s): {failures}")
+        print(f"[DONE] {len(failures)} fund(s) still missing for {expected}: {failures}")
         sys.exit(1)
 
-    print("[DONE] all ETFs scraped successfully")
+    print(f"[DONE] every fund has a snapshot for {expected}")
 
 
 if __name__ == "__main__":

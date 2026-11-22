@@ -97,6 +97,28 @@ def save_etf_snapshot(conn, ticker, etf_name, data_date, net_asset, holdings):
     return snapshot_id
 
 
+def get_snapshot_tickers(conn, data_date):
+    """Tickers that already have a saved snapshot for data_date."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT ticker FROM etf_snapshot WHERE data_date = %s", (data_date,))
+        return {r[0] for r in cur.fetchall()}
+
+
+def get_held_codes(conn, data_date):
+    """Every stock code held by any fund snapshot saved for data_date."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT h.stock_code
+            FROM etf_holding h
+            JOIN etf_snapshot s ON s.id = h.snapshot_id
+            WHERE s.data_date = %s
+            """,
+            (data_date,),
+        )
+        return {r[0] for r in cur.fetchall()}
+
+
 def save_stock_prices(conn, trade_date, rows):
     """rows: iterable of (stock_code, price, change_pct)."""
     rows = list(rows)

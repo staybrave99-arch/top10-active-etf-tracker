@@ -5,6 +5,7 @@ write the ntfy notification payload (summary text + a "查看圖表" action
 button linking to that page).
 """
 
+import csv
 import json
 import os
 
@@ -16,6 +17,7 @@ from top_movers_study import LIQUIDATION_THRESHOLD, compute_screens, fetch_all, 
 OUT_PATH = os.path.join(os.path.dirname(__file__), "..", "docs", "top_movers.html")
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "variation_price_chart_template.html")
 NTFY_PAYLOAD_PATH = os.path.join(os.path.dirname(__file__), "..", "ntfy_payload.json")
+ETF_LIST_PATH = os.path.join(os.path.dirname(__file__), "..", "Top10ActiveETF.csv")
 NTFY_TOPIC = "ETF-Tracking-0577"
 PAGE_TITLE = "全市場買賣最大股票：變動率與股價走勢"
 PAGE_URL = "https://staybrave99-arch.github.io/top10-active-etf-tracker/top_movers.html"
@@ -39,8 +41,31 @@ def _section(title, rows, rate_col, names):
     return lines
 
 
+def _etf_names():
+    try:
+        with open(ETF_LIST_PATH, encoding="utf-8-sig", newline="") as f:
+            return {r["代號"].strip(): r["ETF名稱"].strip() for r in csv.DictReader(f)}
+    except OSError:
+        return {}
+
+
+def _missing_lines(missing_funds):
+    """Flags report-window days where a fund couldn't be read (its previous
+    snapshot stood in, i.e. counted as no buying/selling that day, by
+    fund_flow()). Empty list when nothing is missing."""
+    if not missing_funds:
+        return []
+    etf_names = _etf_names()
+    lines = ["⚠ 資料缺漏（以前一日持股代替，視同當日無進出）："]
+    for d in sorted(missing_funds):
+        funds = "、".join(f"{t} {etf_names.get(t, '')}".strip() for t in missing_funds[d])
+        lines.append(f"{pd.Timestamp(d).strftime('%m-%d')}：{funds}")
+    return lines + [""]
+
+
 def _build_message(screens, names, date_str):
     lines = [f"每日買賣最大變動率 ({date_str}):", ""]
+    lines += _missing_lines(screens.get("missing_funds"))
     lines += _section("今日買超前5名", screens["top_buy_today"], "variation_rate", names)
     lines.append("")
     lines += _section("今日賣超前5名", screens["top_sell_today"], "variation_rate", names)
@@ -82,7 +107,7 @@ def main():
         chart_axis = shared_chart_axis(holdings, prices)
         data = {"stocks": []}
         for code in selected:
-            df = build_series(holdings, prices, code, date_axis=chart_axis)
+            df = build_series(holdings, prices, code, date_axis=chart_axis, flow=screens["flow"])
 
             def col(name_, digits):
                 return [None if pd.isna(v) else round(float(v), digits) for v in df[name_]]

@@ -49,6 +49,7 @@ import numpy as np
 import pandas as pd
 import psycopg2
 
+from correlation_study import fund_flow
 from top_movers_study import fetch_all
 
 LAGS = [0, 1, 3, 5, 10]
@@ -60,7 +61,10 @@ def build_panels(holdings, prices):
     combined = holdings.groupby(["stock_code", "trade_date"])["shares"].sum().reset_index()
     shares_panel = combined.pivot(index="trade_date", columns="stock_code", values="shares").sort_index()
 
-    var_panel = shares_panel.pct_change()
+    # Single-day signal: per-fund comparison (see correlation_study.fund_flow),
+    # so a fund missing a day doesn't plant a phantom sell/buy pair.
+    flow = fund_flow(holdings)
+    var_panel = flow.pivot(index="trade_date", columns="stock_code", values="variation_rate").sort_index()
     cum_panel = (shares_panel - shares_panel.shift(CUM_WINDOW)) / shares_panel.shift(CUM_WINDOW)
 
     price_panel = prices.pivot_table(index="trade_date", columns="stock_code", values="close", aggfunc="last")

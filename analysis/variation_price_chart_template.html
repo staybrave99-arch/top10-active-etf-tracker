@@ -29,7 +29,7 @@
   }
   .viz-root { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
 
-  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 4px; }
   .subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; line-height: 1.5; }
 
   .legend { display: flex; gap: 16px; align-items: center; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; margin-bottom: 16px; }
@@ -61,14 +61,14 @@
     padding: 14px 14px 8px;
   }
   .panel-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
-  .panel-title { font-size: 17px; font-weight: 600; margin: 0; }
+  .panel-title { font-size: 22px; font-weight: 600; margin: 0; }
   .tag {
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--text-secondary);
     background: var(--grid);
     border-radius: 999px;
-    padding: 3px 10px;
+    padding: 4px 12px;
     white-space: nowrap;
   }
   .tag.buy-streak { color: #ffffff; background: var(--green); }
@@ -92,29 +92,6 @@
   .bar-up { fill: var(--red); }
   .bar-down { fill: var(--blue); }
   .end-dot { stroke: var(--surface-1); stroke-width: 2; }
-  .hit { fill: transparent; cursor: pointer; touch-action: pan-y; }
-  .crosshair { stroke: var(--axis); stroke-width: 1; opacity: 0; pointer-events: none; }
-  .crosshair.show { opacity: 1; }
-
-  .tooltip {
-    position: fixed;
-    pointer-events: none;
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-    opacity: 0;
-    transition: opacity 0.1s;
-    z-index: 10;
-    min-width: 150px;
-  }
-  .tooltip.show { opacity: 1; }
-  .tooltip .t-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
-  .tooltip .t-row { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
-  .tooltip .t-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 
   table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
   table.data-table th, table.data-table td {
@@ -149,8 +126,6 @@
   <div id="tableWrap" class="hidden"></div>
 </div>
 
-<div class="tooltip" id="tooltip"></div>
-
 <script>
 const DATA = __VP_DATA__;
 
@@ -165,55 +140,6 @@ function render() {
   const totalDays = DATA.stocks[0] ? DATA.stocks[0].dates.length : 0;
   document.getElementById('subtitle').textContent =
     `共 ${totalDays} 個交易日 ・ 變動率 = 當天跨ETF合計持股股數變化 / 前一日合計股數 ・ 上圖股價（左軸）與合計持股張數（右軸）雙Y軸、下圖變動率（Y軸為對數座標）・ 三者共用日期軸`;
-
-  const tooltip = document.getElementById('tooltip');
-  function showTooltip(evt, date, rows) {
-    tooltip.innerHTML = '';
-    const title = document.createElement('div');
-    title.className = 't-title';
-    title.textContent = date;
-    tooltip.appendChild(title);
-    rows.forEach(([k, v, digits, suffix]) => {
-      const row = document.createElement('div');
-      row.className = 't-row';
-      const kEl = document.createElement('span'); kEl.textContent = k;
-      const vEl = document.createElement('span'); vEl.className = 't-val';
-      vEl.textContent = v === null || v === undefined ? '—' : (typeof v === 'number' ? v.toFixed(digits ?? 2) + (suffix || '') : v);
-      row.appendChild(kEl); row.appendChild(vEl);
-      tooltip.appendChild(row);
-    });
-    tooltip.classList.add('show');
-    moveTooltip(evt);
-  }
-  function moveTooltip(evt) {
-    const pad = 14;
-    let left = evt.clientX + pad, top = evt.clientY + pad;
-    if (left + 190 > window.innerWidth) left = evt.clientX - 190 - pad;
-    if (top + 110 > window.innerHeight) top = evt.clientY - 110 - pad;
-    tooltip.style.left = left + 'px'; tooltip.style.top = top + 'px';
-  }
-  function hideTooltip() { tooltip.classList.remove('show'); }
-
-  // Tapping anywhere outside a bar/point dismisses a tap-opened tooltip;
-  // the per-hit click handlers stop propagation so tapping a bar doesn't
-  // immediately re-trigger this and hide the one it just opened. render()
-  // only runs once in this template, so this listener is added exactly
-  // once, not re-stacked.
-  document.addEventListener('click', hideTooltip);
-
-  // The tooltip is position:fixed, so it stays put on screen -- not tied
-  // to any panel -- while the page scrolls underneath it. Scrolling is a
-  // pan gesture, not a click, so it never hit the listener above: without
-  // this, a tooltip pinned on one stock's chart would keep showing that
-  // stock's numbers after scrolling a *different* stock's chart into the
-  // same screen position, making it look like the new panel had wrong
-  // data. Every panel's own hideCrosshair() gets pushed into this array
-  // below so one scroll listener can clear all of them at once.
-  const allHideCrosshairs = [];
-  window.addEventListener('scroll', () => {
-    hideTooltip();
-    allHideCrosshairs.forEach(fn => fn());
-  }, { passive: true, capture: true });
 
   const chartWrap = document.getElementById('chartWrap');
   chartWrap.innerHTML = '';
@@ -321,78 +247,6 @@ function render() {
       const h = Math.abs(varYScale(v) - zeroY);
       varSvg.appendChild(el('rect', { class: v > 0 ? 'bar-up' : 'bar-down', x: x - barW / 2, y, width: barW, height: h }));
     });
-    // --- shared crosshair, spanning both sub-charts ---
-    // A single continuous scrub interaction (not per-date discrete hit
-    // targets) drives one crosshair line in each SVG. pointermove alone
-    // covers both input types: for a mouse it fires on hover (no button
-    // needed), for touch it only fires while a finger is down -- which is
-    // exactly "drag to scrub". pointerdown additionally fires it once
-    // immediately, so a plain tap-without-moving still shows a value.
-    const priceCrosshair = el('line', { class: 'crosshair', x1: 0, x2: 0, y1: 0, y2: PH });
-    const varCrosshair = el('line', { class: 'crosshair', x1: 0, x2: 0, y1: 0, y2: VH });
-    priceSvg.appendChild(priceCrosshair);
-    varSvg.appendChild(varCrosshair);
-
-    function updateCrosshair(idx, evt) {
-      idx = Math.max(0, Math.min(dates.length - 1, idx));
-      const date = dates[idx];
-      const xP = xAt(idx, pPlotW, PM.left);
-      const xV = xAt(idx, vPlotW, VM.left);
-      priceCrosshair.setAttribute('x1', xP); priceCrosshair.setAttribute('x2', xP);
-      varCrosshair.setAttribute('x1', xV); varCrosshair.setAttribute('x2', xV);
-      priceCrosshair.classList.add('show');
-      varCrosshair.classList.add('show');
-      const v = stock.variation_rate[idx];
-      const shares = (stock.shares || [])[idx];
-      const rows = [
-        ['收盤價', stock.close[idx], 2],
-        ['合計持股張數', shares === null || shares === undefined ? null : Math.round(shares / 1000).toLocaleString()],
-        ['變動率', v === null ? null : v * 100, 2, '%'],
-      ];
-      showTooltip(evt, date, rows);
-    }
-    function hideCrosshair() {
-      priceCrosshair.classList.remove('show');
-      varCrosshair.classList.remove('show');
-      hideTooltip();
-    }
-    allHideCrosshairs.push(hideCrosshair);
-    // Pointer capture (set on down) keeps subsequent pointermove events
-    // routed to the SAME overlay even if the finger drifts vertically into
-    // the other sub-chart -- only clientX is used, so that's harmless and
-    // lets one continuous drag scrub across both stacked charts.
-    function attachScrub(overlay, svgEl, plotW, left) {
-      function indexFromEvent(evt) {
-        const rect = svgEl.getBoundingClientRect();
-        const scaleX = rect.width / W;
-        const localX = (evt.clientX - rect.left) / scaleX;
-        const frac = dates.length <= 1 ? 0 : Math.max(0, Math.min(1, (localX - left) / plotW));
-        return Math.round(frac * (dates.length - 1));
-      }
-      overlay.addEventListener('pointerdown', evt => {
-        evt.stopPropagation();
-        overlay.setPointerCapture(evt.pointerId);
-        updateCrosshair(indexFromEvent(evt), evt);
-      });
-      overlay.addEventListener('pointermove', evt => updateCrosshair(indexFromEvent(evt), evt));
-      overlay.addEventListener('pointerleave', evt => {
-        // Touch has no true hover state -- lifting a finger fires
-        // pointerleave right after pointerup, so only a mouse actually
-        // leaving the chart should dismiss; a touch crosshair stays
-        // pinned until the user taps elsewhere (document click handler).
-        if (evt.pointerType === 'mouse') hideCrosshair();
-      });
-      overlay.addEventListener('click', evt => evt.stopPropagation());
-    }
-
-    const priceOverlay = el('rect', { class: 'hit', x: PM.left, y: 0, width: pPlotW, height: PH });
-    priceSvg.appendChild(priceOverlay);
-    attachScrub(priceOverlay, priceSvg, pPlotW, PM.left);
-
-    const varOverlay = el('rect', { class: 'hit', x: VM.left, y: VM.top, width: vPlotW, height: vPlotH });
-    varSvg.appendChild(varOverlay);
-    attachScrub(varOverlay, varSvg, vPlotW, VM.left);
-
     const panel = document.createElement('div');
     panel.className = 'panel';
     const titleRow = document.createElement('div');
